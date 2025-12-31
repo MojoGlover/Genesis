@@ -1,0 +1,99 @@
+# AI Core System - Requirements
+# Optimized for M1 MacBook Pro (64GB RAM)
+# Python 3.11+
+
+# ============================================================================
+# CORE FRAMEWORK
+# ============================================================================
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-multipart==0.0.18  # File uploads
+
+# ============================================================================
+# DATABASE & STORAGE
+# ============================================================================
+# Relational
+sqlalchemy==2.0.36
+alembic==1.14.0
+aiosqlite==0.20.0  # Async SQLite
+
+# Vector
+qdrant-client==1.12.0
+
+# ============================================================================
+# LANGCHAIN ECOSYSTEM
+# ============================================================================
+# Core
+langchain==0.3.7
+langchain-core==0.3.15
+langchain-community==0.3.5
+
+# Providers
+langchain-anthropic==0.3.0
+langchain-openai==0.2.8
+langchain-ollama==0.2.0
+
+# Orchestration
+langgraph==0.2.45
+
+# ============================================================================
+# EMBEDDINGS & ML
+# ============================================================================
+sentence-transformers==3.3.1
+torch==2.5.1  # M1 optimized via PyTorch MPS
+transformers==4.47.1
+accelerate==1.2.1  # For model optimization
+
+# ============================================================================
+# TOOLS & INTEGRATIONS
+# ============================================================================
+# Web Search
+duckduckgo-search==6.3.5
+
+# HTTP
+httpx==0.28.1
+aiohttp==3.11.10
+
+# Utilities
+python-dotenv==1.0.1
+PyYAML==6.0.2
+tenacity==9.0.0  # Retry logic
+pydantic-yaml==1.4.0
+
+# ============================================================================
+# MONITORING & LOGGING
+# ============================================================================
+# Structured logging
+structlog==24.4.0
+python-json-logger==3.2.1
+
+# Monitoring (optional)
+# langsmith==0.2.3  # Uncomment if using LangSmith
+# prometheus-client==0.21.0  # Uncomment for metrics
+
+# ============================================================================
+# DEVELOPMENT & TESTING
+# ============================================================================
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+black==24.10.0
+ruff==0.8.4
+mypy==1.13.0
+
+# ============================================================================
+# OPTIONAL - ADVANCED FEATURES
+# ============================================================================
+# Image Generation (if integrating Stable Diffusion)
+# diffusers==0.32.1
+# Pillow==11.0.0
+
+# Code Execution Sandbox
+# jupyter-client==8.6.3
+
+# Calendar Integration
+# google-api-python-client==2.154.0
+# google-auth-httplib2==0.2.0
+# google-auth-oauthlib==1.2.1
