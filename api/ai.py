@@ -7,6 +7,7 @@ import time
 from core.providers import route_and_generate
 from core.tools.router import detect_and_route
 from core.storage.memory import get_memory
+from core.mission import get_system_prompt
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -61,9 +62,10 @@ async def ai_endpoint(req: AIRequest) -> AIResponse:
     if tool_result:
         full_prompt += f"\n\nTool Results:\n{tool_result.get('results', tool_result)}"
     
-    # Generate response with pre-determined complexity
+    # Generate response with mission-guided system prompt
     result = await route_and_generate(
         prompt=full_prompt,
+        system_prompt=get_system_prompt(),  # Injects mission
         complexity=complexity
     )
     latency_ms = int((time.time() - start) * 1000)
