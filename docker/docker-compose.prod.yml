@@ -1,0 +1,55 @@
+version: '3.8'
+
+# Production overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  genesis:
+    # Production settings
+    environment:
+      - GENESIS_ENV=production
+      - LOG_LEVEL=WARNING
+      - GRADIO_SHARE=false
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    
+    # Don't mount source code (use image)
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./MISSION.md:/app/MISSION.md
+      - /app/__pycache__
+    
+    # Restart policy
+    restart: always
+    
+    # Security
+    read_only: false  # Set to true if your app supports it
+    security_opt:
+      - no-new-privileges:true
+    
+  qdrant:
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    
+    # Restart policy
+    restart: always
+    
+    # Security
+    security_opt:
+      - no-new-privileges:true
