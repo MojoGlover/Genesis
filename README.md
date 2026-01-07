@@ -1,73 +1,47 @@
-# GENESIS v0.4
-**Modular AI System Template** - Local-first, extensible, production-ready
+# GENESIS Examples
 
-## What is GENESIS?
-A template AI system that serves as a foundation for building specialized AI agents. Features multi-provider support, memory, semantic search, and a tool system.
+This directory contains examples showing how to extend and customize GENESIS.
 
-## Features
-✅ **Multi-Provider Support** - Ollama (local), Claude, GPT-4, Gemini  
-✅ **Smart Routing** - Automatically uses fast/powerful models based on complexity  
-✅ **Memory System** - SQLite for conversations + Qdrant for semantic search  
-✅ **Tool System** - Web search, file operations, vision analysis  
-✅ **Gradio Interface** - Clean chat UI with status indicators  
-✅ **FastAPI Backend** - REST API for programmatic access  
+## 📚 Available Examples
 
-## Quick Start
+### Adding Custom Tools
+- **Guide**: [`ADDING_A_TOOL.md`](ADDING_A_TOOL.md)
+- **Example Code**: [`custom_search_tool.py`](custom_search_tool.py)
 
-### 1. Install Dependencies
-```bash
-pip install -r requirements.txt --break-system-packages
-```
+Learn how to add new capabilities to GENESIS by creating custom tools. The example shows a web search tool, but the pattern works for any functionality you want to add.
 
-### 2. Start Backend
-```bash
-uvicorn app:app --reload
-```
+## 🚀 Quick Start
 
-### 3. Start Interface
-```bash
-python3 interface.py
-```
-Open http://localhost:7860
+1. **Read the guide**: Start with `ADDING_A_TOOL.md`
+2. **Study the example**: Review `custom_search_tool.py`
+3. **Build your own**: Use the pattern to create custom tools
+4. **Test it**: Write tests following the examples
+5. **Ship it**: Add to your GENESIS deployment
 
-### 4. Test Memory
-```bash
-curl -X POST http://localhost:8000/ai \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "My name is X"}'
-```
+## 🎯 What You'll Learn
 
-## Architecture
-```
-GENESIS/
-├── core/
-│   ├── providers/       # AI model providers (Ollama, Claude, etc)
-│   ├── storage/         # Memory (SQLite + Qdrant vector DB)
-│   ├── tools/           # Web search, file ops, vision
-│   ├── intelligence/    # Agents, RAG (future)
-│   └── orchestration/   # LangGraph workflows (future)
-├── api/                 # FastAPI routes
-├── interface.py         # Gradio chat UI
-└── config.yaml          # System configuration
-```
+- How GENESIS's modular architecture works
+- Where to place custom code
+- How to integrate with the mission system
+- Testing custom extensions
+- LangChain/LangGraph integration
 
-## Configuration
+## 💡 Future Examples (Coming Soon)
 
-Edit `config.yaml` to change:
-- Model preferences (local vs cloud)
-- Routing thresholds
-- API keys
-- Database paths
+- Custom data sources
+- External API integrations
+- Multi-agent workflows
+- Custom RAG implementations
+- Deployment configurations
 
-## Next Steps
+## 🤝 Contributing
 
-1. **Add more tools** - Follow pattern in `core/tools/`
-2. **Build agents** - Use intelligence layer for multi-step reasoning
-3. **Deploy** - Add Docker/cloud deployment
-4. **Extend** - This is a template - make it yours!
+Have a great example to share? Submit a PR with:
+- Clear documentation
+- Working code
+- Tests
+- Real-world use case
 
-## Documentation
-- [Architecture Details](ARCHITECTURE.md)
-- [Setup Guide](SETUP.md)
-- [Adding Tools](docs/ADDING_TOOLS.md)
-- [Session Log](CHANGELOG.md)
+---
+
+**Pro Tip**: Each example is self-contained and can be used as a starting template for your own extensions.
