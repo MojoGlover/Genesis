@@ -49,12 +49,9 @@ class GradioInterface:
         if not message.strip():
             return history, "", "", "", None
         
-        # Add user message to history
-        history.append([message, None])
-        
         # Determine if this is a coding task
-        is_coding_task = any(word in message.lower() for word in 
-            ["write", "create", "build", "code", "script", "program", "function"])
+        is_coding_task = any(word in message.lower() for word in
+            ["write", "create", "build", "code", "script", "program", "function", "read", "modify", "update", "fix"])
         
         if is_coding_task:
             logger.info(f"Processing coding task: {message}")
@@ -65,7 +62,11 @@ class GradioInterface:
         
         # Format AI response
         response = self._format_response(result)
-        history[-1][1] = response
+        
+        # NEW FORMAT - Create proper message format with role/content dicts
+        new_history = history.copy() if history else []
+        new_history.append({"role": "user", "content": message})
+        new_history.append({"role": "assistant", "content": response})
         
         # Generate voice output if enabled
         voice_output = self._generate_voice_output(response) if self.enable_voice_output else None
@@ -79,7 +80,7 @@ class GradioInterface:
         # Get status with fix attempts
         status = self._format_status(result)
         
-        return history, code_output, logs, status, voice_output
+        return new_history, code_output, logs, status, voice_output
     
     def _generate_voice_output(self, text: str) -> Optional[str]:
         """Generate TTS audio from text"""
@@ -116,7 +117,7 @@ class GradioInterface:
             f"Completed in {result['iterations']} iterations"
         ]
         
-        fix_attempts = sum(1 for entry in result['execution_history'] 
+        fix_attempts = sum(1 for entry in result['execution_history']
                           if entry.get('type') == 'fix_attempt')
         if fix_attempts > 0:
             response_parts.append(f"Applied {fix_attempts} fixes automatically")
@@ -133,7 +134,7 @@ class GradioInterface:
             
             if result.get('success') and result['stdout']:
                 lines = result['stdout'].strip().split('\n')
-                if lines:
+                if lines and lines[0]:
                     latest_file = lines[0].split()[-1] if lines[0] else None
                     
                     if latest_file:
@@ -172,7 +173,7 @@ class GradioInterface:
     
     def _format_status(self, result: dict) -> str:
         """Format current agent status"""
-        fix_count = sum(1 for entry in result['execution_history'] 
+        fix_count = sum(1 for entry in result['execution_history']
                        if entry.get('type') == 'fix_attempt')
         
         status_parts = [
@@ -213,12 +214,12 @@ class GradioInterface:
                             voice_input = gr.Audio(
                                 sources=["microphone"],
                                 type="filepath",
-                                label="🎤 Voice",
+                                label="🎤",
                                 scale=1
                             )
                         
                         with gr.Row():
-                            submit_btn = gr.Button("🚀 Build", variant="primary", scale=2)
+                            submit_btn = gr.Button("▶️ Send", variant="primary", scale=2)
                             clear_btn = gr.Button("🗑️ Clear", scale=1)
                         
                         with gr.Accordion("📢 Voice Output", open=False):
@@ -315,9 +316,9 @@ def main():
     interface.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False,
+        share=True,  # ← Change this to True
         theme=gr.themes.Soft()
-    )
+)
 
 
 if __name__ == "__main__":

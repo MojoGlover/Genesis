@@ -1,20 +1,34 @@
 """
-Task Planner - Uses LLMs as planning tools, not as the agent identity
+Task Planner - Uses real LLMs for intelligent planning
 """
 
 import logging
-from typing import Dict, Any, List
 import os
+from typing import Dict, Any, List
+from dotenv import load_dotenv
+import json
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 
 class TaskPlanner:
-    """Plans tasks using LLMs as reasoning tools"""
+    """Plans tasks using real LLM APIs"""
     
     def __init__(self, model_name: str = "gpt-4"):
         self.model_name = model_name
-        logger.info(f"TaskPlanner initialized with model: {model_name}")
+        self.openai_key = os.getenv("OPENAI_API_KEY")
+        self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        
+        # Check if we have API keys
+        self.use_llm = bool(self.openai_key or self.anthropic_key)
+        
+        if self.use_llm:
+            logger.info(f"TaskPlanner initialized with {model_name} - LLM enabled")
+        else:
+            logger.warning("No API keys found - using template planning")
     
     def _get_system_prompt(self) -> str:
         """System prompt that prevents LLM identity bleed"""
@@ -60,7 +74,7 @@ Available actions: workspace_execute, workspace_write, workspace_read, workspace
         
         refusal_phrases = [
             "I'm an AI",
-            "I am an AI", 
+            "I am an AI",
             "I cannot",
             "I can't",
             "I'm not able to",
@@ -90,6 +104,122 @@ Available actions: workspace_execute, workspace_write, workspace_read, workspace
         
         return '\n'.join(clean_lines)
     
+    def _call_openai(self, prompt: str) -> str:
+        """Call OpenAI API using new v1.0+ client"""
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=self.openai_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": self._get_system_prompt()},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=1500
+            )
+            
+            content = response.choices[0].message.content
+            return self._clean_response(content)
+            
+        except Exception as e:
+            logger.error(f"OpenAI API error: {e}")
+            return None
+    
+    def _call_anthropic(self, prompt: str) -> str:
+        """Call Anthropic API"""
+        try:
+            from anthropic import Anthropic
+            
+            client = Anthropic(api_key=self.anthropic_key)
+            
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1500,
+                system=self._get_system_prompt(),
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            
+            content = response.content[0].text
+            return self._clean_response(content)
+            
+        except Exception as e:
+            logger.error(f"Anthropic API error: {e}")
+            return None
+    
+    def _parse_plan(self, llm_response: str) -> List[Dict[str, Any]]:
+        """Parse LLM response into plan steps"""
+        
+        try:
+            # Try to extract JSON from response
+            # Look for JSON array
+            start = llm_response.find('[')
+            end = llm_response.rfind(']') + 1
+            
+            if start != -1 and end > start:
+                json_str = llm_response[start:end]
+                plan = json.loads(json_str)
+                
+                # Add status to each step
+                for step in plan:
+                    step['status'] = 'pending'
+                
+                return plan
+            else:
+                logger.warning("Could not find JSON in LLM response")
+                return None
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM plan: {e}")
+            return None
+    
+    def _template_plan(self, task: str) -> List[Dict[str, Any]]:
+        """Fallback template-based planning"""
+        
+        task_lower = task.lower()
+        
+        if "list" in task_lower and "workspace" in task_lower:
+            return [{
+                "step": 1,
+                "action": "workspace_list",
+                "description": "List workspace contents",
+                "parameters": {"path": "/workspace"},
+                "status": "pending"
+            }]
+        
+        elif any(word in task_lower for word in ["write", "create", "build", "code", "script"]):
+            return [
+                {
+                    "step": 1,
+                    "action": "workspace_write",
+                    "description": f"Create file for: {task}",
+                    "parameters": {
+                        "path": "/workspace/output.py",
+                        "content": "# Auto-generated\nprint('Task completed')"
+                    },
+                    "status": "pending"
+                },
+                {
+                    "step": 2,
+                    "action": "workspace_execute",
+                    "description": "Test the file",
+                    "parameters": {"command": "python /workspace/output.py"},
+                    "status": "pending"
+                }
+            ]
+        
+        else:
+            return [{
+                "step": 1,
+                "action": "workspace_execute",
+                "description": f"Execute: {task}",
+                "parameters": {"command": f"echo 'Task: {task}'"},
+                "status": "pending"
+            }]
+    
     def create_plan(
         self,
         task: str,
@@ -99,51 +229,31 @@ Available actions: workspace_execute, workspace_write, workspace_read, workspace
         """Create initial plan for task"""
         logger.info(f"Creating plan for: {task}")
         
-        # TODO: Replace with actual LLM API call
-        # For now, return intelligent template based on task
+        if self.use_llm:
+            # Try LLM planning
+            prompt = f"""Task: {task}
+
+Available tools: {', '.join(available_tools)}
+
+Create a detailed step-by-step plan to accomplish this task.
+Return only the JSON array of steps."""
+            
+            # Try OpenAI first, then Anthropic
+            llm_response = self._call_openai(prompt)
+            if not llm_response:
+                llm_response = self._call_anthropic(prompt)
+            
+            if llm_response:
+                plan = self._parse_plan(llm_response)
+                if plan:
+                    logger.info(f"LLM created plan with {len(plan)} steps")
+                    return plan
+            
+            logger.warning("LLM planning failed, using template")
         
-        if "list" in task.lower() and "workspace" in task.lower():
-            plan = [
-                {
-                    "step": 1,
-                    "action": "workspace_list",
-                    "description": "List workspace directory contents",
-                    "parameters": {"path": "/workspace"},
-                    "status": "pending"
-                }
-            ]
-        elif "write" in task.lower() or "create" in task.lower() or "build" in task.lower():
-            plan = [
-                {
-                    "step": 1,
-                    "action": "workspace_write",
-                    "description": f"Create file for: {task}",
-                    "parameters": {
-                        "path": "/workspace/output.py",
-                        "content": "# Generated file\nprint('Task completed')"
-                    },
-                    "status": "pending"
-                },
-                {
-                    "step": 2,
-                    "action": "workspace_execute",
-                    "description": "Test the created file",
-                    "parameters": {"command": "python /workspace/output.py"},
-                    "status": "pending"
-                }
-            ]
-        else:
-            plan = [
-                {
-                    "step": 1,
-                    "action": "workspace_execute",
-                    "description": f"Execute task: {task}",
-                    "parameters": {"command": f"echo 'Executing: {task}'"},
-                    "status": "pending"
-                }
-            ]
-        
-        logger.info(f"Created plan with {len(plan)} steps")
+        # Fallback to template
+        plan = self._template_plan(task)
+        logger.info(f"Template plan with {len(plan)} steps")
         return plan
     
     def replan(
@@ -154,11 +264,30 @@ Available actions: workspace_execute, workspace_write, workspace_read, workspace
         mission: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Create new plan based on execution results"""
+        
         logger.info("Replanning based on execution history")
         
-        # TODO: Use LLM to analyze failures and create better plan
-        # For now, retry failed steps with adjustments
+        if self.use_llm:
+            # Use LLM to analyze failures and replan
+            prompt = f"""Original task: {original_task}
+
+Previous plan failed. Execution history:
+{json.dumps(execution_history[-3:], indent=2)}
+
+Analyze what went wrong and create a NEW plan that addresses the failures.
+Return only the JSON array of steps."""
+            
+            llm_response = self._call_openai(prompt)
+            if not llm_response:
+                llm_response = self._call_anthropic(prompt)
+            
+            if llm_response:
+                plan = self._parse_plan(llm_response)
+                if plan:
+                    logger.info(f"LLM replanned with {len(plan)} steps")
+                    return plan
         
+        # Fallback: retry failed steps with adjustments
         new_plan = []
         for step in original_plan:
             if step.get("status") != "complete":
@@ -198,8 +327,7 @@ Available actions: workspace_execute, workspace_write, workspace_read, workspace
         if not all_complete:
             return False
         
-        # TODO: Use LLM to verify task completion
-        # For now, basic heuristic: if all steps passed, task is complete
-        
+        # DISABLED: LLM verification to avoid infinite loops when APIs fail
+        # Just check if all steps are complete
         logger.info(f"Task completion verified: {all_complete}")
         return all_complete

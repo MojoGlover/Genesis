@@ -66,6 +66,19 @@ class ToolExecutor:
             # Get the tool function
             tool_func = self.tools[action]
             
+            # Handle parameter name variations (LLMs might use different names)
+            # GPT-4 sometimes uses 'code' instead of 'command'
+            if action == "workspace_execute":
+                if "code" in parameters and "command" not in parameters:
+                    parameters["command"] = parameters.pop("code")
+                elif "script" in parameters and "command" not in parameters:
+                    parameters["command"] = parameters.pop("script")
+            
+            # Handle 'content' vs 'text' for file writing
+            if action == "workspace_write":
+                if "text" in parameters and "content" not in parameters:
+                    parameters["content"] = parameters.pop("text")
+            
             # Execute with parameters
             result = tool_func(**parameters)
             

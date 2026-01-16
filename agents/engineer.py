@@ -154,7 +154,8 @@ class EngineerAgent(AutonomousAgent):
     def _analyze_error(self, error_result: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze error to determine type and cause"""
         
-        error_text = error_result.get("error", "") + error_result.get("output", "")
+        # Handle None values safely
+        error_text = str(error_result.get("error") or "") + str(error_result.get("output") or "")
         
         # Common error patterns
         patterns = {
@@ -190,7 +191,7 @@ class EngineerAgent(AutonomousAgent):
         """Generate fix based on error type"""
         
         error_type = error["type"]
-        error_msg = error["message"]
+        error_msg = error.get("message", "")
         
         # TODO: Use LLM to generate intelligent fixes
         # For now, handle common cases
