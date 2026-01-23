@@ -79,6 +79,16 @@ class ToolExecutor:
                 if "text" in parameters and "content" not in parameters:
                     parameters["content"] = parameters.pop("text")
             
+            # Handle 'packages' vs 'package' for installation
+            if action == "workspace_install":
+                if "packages" in parameters and "package" not in parameters:
+                    # If multiple packages, install first one
+                    packages = parameters.pop("packages")
+                    if isinstance(packages, list):
+                        parameters["package"] = packages[0]
+                    else:
+                        parameters["package"] = packages
+            
             # Execute with parameters
             result = tool_func(**parameters)
             
