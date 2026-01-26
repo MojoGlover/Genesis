@@ -11,22 +11,23 @@ from .base import BaseProvider
 
 class OllamaProvider(BaseProvider):
     """Ollama local model provider"""
-    
-    def __init__(self, model: str = "llama3.1:70b", base_url: str = "http://localhost:11434"):
-        self.model = model
-        self.base_url = base_url
-        
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.model = config.get("name", "llama3.1:70b")
+        self.base_url = config.get("base_url", "http://localhost:11434")
+
     async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
-        max_tokens: int = 1000,
-        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """Generate completion using Ollama"""
         start = time.time()
-        
+
         # Build messages array
         messages = []
         if system_prompt:
@@ -38,9 +39,7 @@ class OllamaProvider(BaseProvider):
             "role": "user",
             "content": prompt
         })
-        
-        print(f"DEBUG: Calling {self.base_url}/api/chat with model {self.model}")
-        
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{self.base_url}/api/chat",
@@ -49,27 +48,30 @@ class OllamaProvider(BaseProvider):
                     "messages": messages,
                     "stream": False,
                     "options": {
-                        "temperature": temperature,
-                        "num_predict": max_tokens
+                        "temperature": temperature or self.config.get("temperature", 0.7),
+                        "num_predict": max_tokens or self.config.get("max_tokens", 1000)
                     }
                 }
             )
             response.raise_for_status()
             data = response.json()
-            
+
         latency = int((time.time() - start) * 1000)
-        
+
         return {
             "content": data["message"]["content"],
             "model": self.model,
             "latency_ms": latency
         }
-    
-    async def health_check(self) -> bool:
-        """Check if Ollama is running"""
+
+    def get_name(self) -> str:
+        return f"ollama:{self.model}"
+
+    def is_available(self) -> bool:
+        """Check if Ollama is reachable (sync check)"""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
-                return response.status_code == 200
-        except:
+            import httpx as _httpx
+            resp = _httpx.get(f"{self.base_url}/api/tags", timeout=3.0)
+            return resp.status_code == 200
+        except Exception:
             return False
