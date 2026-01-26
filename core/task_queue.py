@@ -23,21 +23,26 @@ class TaskQueue:
         self.history_dir.mkdir(exist_ok=True)
         logger.info(f"TaskQueue initialized (max: {max_tasks})")
     
-    def add_task(self, task: Dict[str, Any]) -> bool:
-        """Add task to queue if space available"""
+    def add_task(self, task: Dict[str, Any]) -> Optional[str]:
+        """Add task to queue if space available.
+
+        Returns:
+            task_id on success, None on failure.
+            Backward-compatible: non-empty string is truthy, None is falsy.
+        """
         if len(self.tasks) >= self.max_tasks:
             logger.warning(f"Queue full ({self.max_tasks} tasks)")
-            return False
-        
+            return None
+
         # Generate unique ID
         task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         task["id"] = task_id
         task["status"] = "pending"
         task["added_at"] = datetime.now().isoformat()
-        
+
         self.tasks.append(task)
         logger.info(f"Added task: {task_id}")
-        return True
+        return task_id
     
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get task by ID"""
