@@ -4,7 +4,7 @@ Task Planner - Uses real LLMs for intelligent planning
 
 import logging
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 import json
 
@@ -30,9 +30,15 @@ class TaskPlanner:
         else:
             logger.warning("No API keys found - using template planning")
     
-    def _get_system_prompt(self) -> str:
-        """System prompt that prevents LLM identity bleed"""
-        return """You are a planning assistant for GENESIS, an autonomous agent.
+    def _get_system_prompt(self, tool_descriptions: Optional[Dict[str, str]] = None) -> str:
+        """System prompt with dynamic tool list"""
+        # Build tool listing
+        if tool_descriptions:
+            tool_lines = self._format_tool_list(tool_descriptions)
+        else:
+            tool_lines = "Available actions: workspace_execute, workspace_write, workspace_read, workspace_list, workspace_install"
+
+        return f"""You are a planning assistant for GENESIS, an autonomous agent.
 
 CRITICAL CONTEXT:
 - You are NOT responding to the user directly
@@ -43,31 +49,55 @@ CRITICAL CONTEXT:
 YOUR JOB: Provide step-by-step plans that GENESIS will execute.
 
 DO NOT say:
-❌ "I cannot execute code"
-❌ "I'm an AI language model"  
-❌ "I don't have access to..."
-❌ "I'm not able to..."
-❌ "As an AI, I cannot..."
-❌ "I'm sorry, but I can't..."
+- "I cannot execute code"
+- "I'm an AI language model"
+- "I don't have access to..."
+- "As an AI, I cannot..."
 
 INSTEAD:
-✅ Provide concrete, executable steps
-✅ Assume all tools are available
-✅ Be specific about actions to take
-✅ Focus on HOW to accomplish the task
+- Provide concrete, executable steps
+- Assume all tools are available
+- Be specific about actions to take
+- Focus on HOW to accomplish the task
 
 Format your response as a JSON array of steps:
 [
-  {
+  {{
     "step": 1,
-    "action": "workspace_write",
+    "action": "write_file",
     "description": "Create script file",
-    "parameters": {"path": "/workspace/script.py", "content": "code here"}
-  }
+    "parameters": {{"filepath": "/workspace/script.py", "content": "code here"}}
+  }}
 ]
 
-Available actions: workspace_execute, workspace_write, workspace_read, workspace_list, workspace_install
+{tool_lines}
 """
+
+    @staticmethod
+    def _format_tool_list(tool_descriptions: Dict[str, str]) -> str:
+        """Format tool descriptions into categorized listing for the LLM"""
+        workspace_tools = {}
+        local_tools = {}
+
+        for name, desc in sorted(tool_descriptions.items()):
+            if name.startswith("workspace_"):
+                workspace_tools[name] = desc
+            else:
+                local_tools[name] = desc
+
+        lines = ["AVAILABLE TOOLS:"]
+
+        if local_tools:
+            lines.append("\n## Local Tools (direct execution)")
+            for name, desc in local_tools.items():
+                lines.append(f"  - {name}: {desc}")
+
+        if workspace_tools:
+            lines.append("\n## Docker Workspace Tools (sandboxed)")
+            for name, desc in workspace_tools.items():
+                lines.append(f"  - {name}: {desc}")
+
+        return "\n".join(lines)
     
     def _clean_response(self, response: str) -> str:
         """Remove LLM identity and refusal statements"""
@@ -104,48 +134,48 @@ Available actions: workspace_execute, workspace_write, workspace_read, workspace
         
         return '\n'.join(clean_lines)
     
-    def _call_openai(self, prompt: str) -> str:
+    def _call_openai(self, prompt: str, tool_descriptions: Optional[Dict[str, str]] = None) -> str:
         """Call OpenAI API using new v1.0+ client"""
         try:
             from openai import OpenAI
             client = OpenAI(api_key=self.openai_key)
-            
+
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": self._get_system_prompt()},
+                    {"role": "system", "content": self._get_system_prompt(tool_descriptions)},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
                 max_tokens=1500
             )
-            
+
             content = response.choices[0].message.content
             return self._clean_response(content)
-            
+
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
             return None
-    
-    def _call_anthropic(self, prompt: str) -> str:
+
+    def _call_anthropic(self, prompt: str, tool_descriptions: Optional[Dict[str, str]] = None) -> str:
         """Call Anthropic API"""
         try:
             from anthropic import Anthropic
-            
+
             client = Anthropic(api_key=self.anthropic_key)
-            
+
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=1500,
-                system=self._get_system_prompt(),
+                system=self._get_system_prompt(tool_descriptions),
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
             )
-            
+
             content = response.content[0].text
             return self._clean_response(content)
-            
+
         except Exception as e:
             logger.error(f"Anthropic API error: {e}")
             return None
@@ -224,11 +254,12 @@ Available actions: workspace_execute, workspace_write, workspace_read, workspace
         self,
         task: str,
         mission: Dict[str, Any],
-        available_tools: List[str]
+        available_tools: List[str],
+        tool_descriptions: Optional[Dict[str, str]] = None
     ) -> List[Dict[str, Any]]:
         """Create initial plan for task"""
-        logger.info(f"Creating plan for: {task}")
-        
+        logger.info(f"Creating plan for: {task} ({len(available_tools)} tools available)")
+
         if self.use_llm:
             # Try LLM planning
             prompt = f"""Task: {task}
@@ -237,20 +268,20 @@ Available tools: {', '.join(available_tools)}
 
 Create a detailed step-by-step plan to accomplish this task.
 Return only the JSON array of steps."""
-            
+
             # Try OpenAI first, then Anthropic
-            llm_response = self._call_openai(prompt)
+            llm_response = self._call_openai(prompt, tool_descriptions)
             if not llm_response:
-                llm_response = self._call_anthropic(prompt)
-            
+                llm_response = self._call_anthropic(prompt, tool_descriptions)
+
             if llm_response:
                 plan = self._parse_plan(llm_response)
                 if plan:
                     logger.info(f"LLM created plan with {len(plan)} steps")
                     return plan
-            
+
             logger.warning("LLM planning failed, using template")
-        
+
         # Fallback to template
         plan = self._template_plan(task)
         logger.info(f"Template plan with {len(plan)} steps")
@@ -261,12 +292,13 @@ Return only the JSON array of steps."""
         original_task: str,
         original_plan: List[Dict[str, Any]],
         execution_history: List[Dict[str, Any]],
-        mission: Dict[str, Any]
+        mission: Dict[str, Any],
+        tool_descriptions: Optional[Dict[str, str]] = None
     ) -> List[Dict[str, Any]]:
         """Create new plan based on execution results"""
-        
+
         logger.info("Replanning based on execution history")
-        
+
         if self.use_llm:
             # Use LLM to analyze failures and replan
             prompt = f"""Original task: {original_task}
@@ -276,10 +308,10 @@ Previous plan failed. Execution history:
 
 Analyze what went wrong and create a NEW plan that addresses the failures.
 Return only the JSON array of steps."""
-            
-            llm_response = self._call_openai(prompt)
+
+            llm_response = self._call_openai(prompt, tool_descriptions)
             if not llm_response:
-                llm_response = self._call_anthropic(prompt)
+                llm_response = self._call_anthropic(prompt, tool_descriptions)
             
             if llm_response:
                 plan = self._parse_plan(llm_response)

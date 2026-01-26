@@ -1,5 +1,6 @@
 """
 Tool Executor - Executes actions using available tools
+Registers 5 Docker workspace tools + 27 local tools from agents/tools registry
 """
 
 import logging
@@ -9,30 +10,65 @@ from tools.workspace_tool import WorkspaceTool
 
 logger = logging.getLogger(__name__)
 
+# Workspace tool descriptions (not in the registry)
+WORKSPACE_TOOL_DESCRIPTIONS = {
+    "workspace_execute": "Run shell commands in Docker sandbox",
+    "workspace_write": "Write files inside Docker workspace",
+    "workspace_read": "Read files from Docker workspace",
+    "workspace_list": "List directory contents in Docker workspace",
+    "workspace_install": "Install packages inside Docker workspace",
+}
+
 
 class ToolExecutor:
     """Executes actions using registered tools"""
-    
+
     def __init__(self):
         self.tools = {}
+        self._descriptions = {}
         self._register_tools()
         logger.info(f"ToolExecutor initialized with {len(self.tools)} tools")
-    
+
     def _register_tools(self):
         """Register all available tools"""
-        # Register workspace tool
+        # 1. Register Docker workspace tools (sandboxed execution)
         workspace_tool = WorkspaceTool()
         self.tools["workspace_execute"] = workspace_tool.execute_command
         self.tools["workspace_write"] = workspace_tool.write_file
         self.tools["workspace_read"] = workspace_tool.read_file
         self.tools["workspace_list"] = workspace_tool.list_directory
         self.tools["workspace_install"] = workspace_tool.install_package
-        
-        logger.info(f"Registered tools: {list(self.tools.keys())}")
-    
+        self._descriptions.update(WORKSPACE_TOOL_DESCRIPTIONS)
+
+        workspace_count = len(self.tools)
+
+        # 2. Register all tools from agents/tools registry (local execution)
+        registry_count = 0
+        try:
+            from agents.tools import get_registry
+            registry = get_registry()
+            for tool in registry.tools.values():
+                if tool.name not in self.tools:
+                    self.tools[tool.name] = tool.function
+                    self._descriptions[tool.name] = tool.description
+                    registry_count += 1
+                else:
+                    logger.debug(f"Skipping registry tool '{tool.name}' - workspace tool takes priority")
+        except Exception as e:
+            logger.warning(f"Could not load tool registry: {e}")
+
+        logger.info(
+            f"Registered {len(self.tools)} tools "
+            f"({workspace_count} workspace + {registry_count} registry)"
+        )
+
     def get_available_tools(self) -> List[str]:
         """Get list of available tool names"""
         return list(self.tools.keys())
+
+    def get_tool_descriptions(self) -> Dict[str, str]:
+        """Get {name: description} for all registered tools"""
+        return dict(self._descriptions)
     
     def execute(
         self,

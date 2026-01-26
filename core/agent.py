@@ -103,16 +103,17 @@ class AutonomousAgent:
     def _planning_step(self, context: AgentContext) -> AgentContext:
         """Create or update plan based on current state"""
         logger.info("Planning step...")
-        
+
         # Generate plan if we don't have one
         if not context.plan:
             context.plan = self.planner.create_plan(
                 task=context.task,
                 mission=self.mission,
-                available_tools=self.executor.get_available_tools()
+                available_tools=self.executor.get_available_tools(),
+                tool_descriptions=self.executor.get_tool_descriptions(),
             )
             logger.info(f"Created plan with {len(context.plan)} steps")
-        
+
         # Move to execution
         context.state = AgentState.EXECUTING
         return context
@@ -176,7 +177,8 @@ class AutonomousAgent:
                 original_task=context.task,
                 original_plan=context.plan,
                 execution_history=context.execution_history,
-                mission=self.mission
+                mission=self.mission,
+                tool_descriptions=self.executor.get_tool_descriptions(),
             )
             context.state = AgentState.EXECUTING
         else:
