@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>GENESIS Delivery</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    :root {
+      --bg: #0f0f1a;
+      --bg-panel: #1a1a2e;
+      --bg-card: #222240;
+      --text: #e8e8f0;
+      --text-muted: #8888aa;
+      --accent: #4f6df5;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --border: #2d2d50;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100dvh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .header h1 { font-size: 16px; font-weight: 700; }
+    .header .total-time {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    /* Map */
+    #map {
+      flex: 1;
+      min-height: 200px;
+    }
+
+    /* Bottom panel */
+    .panel {
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+      max-height: 50dvh;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      flex: 1;
+      padding: 12px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tab.active {
+      color: var(--accent);
+      border-bottom: 2px solid var(--accent);
+    }
+
+    /* Stop list */
+    .stop-list {
+      padding: 8px;
+    }
+    .stop-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      background: var(--bg-card);
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+    .stop-item.completed {
+      opacity: 0.5;
+    }
+    .stop-num {
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .stop-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .stop-addr {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stop-time {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .stop-check {
+      width: 32px;
+      height: 32px;
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--success);
+      font-size: 18px;
+    }
+    .stop-check.done {
+      background: var(--success);
+      border-color: var(--success);
+      color: #fff;
+    }
+
+    /* Input section */
+    .input-section {
+      padding: 12px;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .input-row input, .input-row textarea {
+      flex: 1;
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .input-row textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+    .input-row input:focus, .input-row textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 44px;
+    }
+    .btn:active { opacity: 0.7; }
+    .btn:disabled { opacity: 0.4; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-warning { background: var(--warning); color: #000; }
+    .btn-full { width: 100%; }
+    .btn-icon {
+      width: 44px;
+      padding: 0;
+      background: var(--bg-card);
+      color: var(--text);
+    }
+
+    /* Charging stations */
+    .station-list {
+      padding: 8px;
+    }
+    .station-item {
+      padding: 10px;
+      background: var(--bg-card);
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+    .station-name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .station-info {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 14px;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: var(--text-muted);
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Empty state */
+    .empty {
+      text-align: center;
+      padding: 30px;
+      color: var(--text-muted);
+    }
+
+    /* File input hidden */
+    .hidden-input { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="app" x-data="delivery()" x-init="init()">
+
+  <!-- Toast -->
+  <div class="toast" :class="{ show: toast }" x-text="toast"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <h1>Delivery Navigator</h1>
+    <div class="total-time" x-text="totalTime || '--'"></div>
+  </header>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Bottom Panel -->
+  <div class="panel">
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab" :class="{ active: tab === 'stops' }" @click="tab = 'stops'">
+        Stops (<span x-text="stops.length"></span>)
+      </button>
+      <button class="tab" :class="{ active: tab === 'add' }" @click="tab = 'add'">
+        Add
+      </button>
+      <button class="tab" :class="{ active: tab === 'charging' }" @click="tab = 'charging'">
+        Charging
+      </button>
+    </div>
+
+    <!-- Stops Tab -->
+    <div x-show="tab === 'stops'" class="stop-list">
+      <template x-if="loading">
+        <div class="loading"><span class="spinner"></span> Optimizing...</div>
+      </template>
+      <template x-if="!loading && stops.length === 0">
+        <div class="empty">No stops yet. Add addresses to get started.</div>
+      </template>
+      <template x-for="(stop, i) in stops" :key="i">
+        <div class="stop-item" :class="{ completed: stop.done }">
+          <div class="stop-num" x-text="i + 1"></div>
+          <div class="stop-info">
+            <div class="stop-addr" x-text="stop.address"></div>
+            <div class="stop-time" x-text="stop.legTime ? '↓ ' + stop.legTime : ''"></div>
+          </div>
+          <button class="stop-check" :class="{ done: stop.done }" @click="toggleDone(i)">
+            <span x-show="stop.done">✓</span>
+          </button>
+        </div>
+      </template>
+      <template x-if="stops.length > 0 && !loading">
+        <button class="btn btn-warning btn-full" style="margin-top:8px" @click="clearStops()">
+          Clear All
+        </button>
+      </template>
+    </div>
+
+    <!-- Add Tab -->
+    <div x-show="tab === 'add'" class="input-section">
+      <div class="input-row">
+        <textarea x-model="addressInput" placeholder="Paste addresses (one per line, up to 50)..."></textarea>
+      </div>
+      <div class="input-row">
+        <button class="btn btn-primary btn-full" @click="planRoute()" :disabled="loading || !addressInput.trim()">
+          <span x-show="!loading">Optimize Route</span>
+          <span x-show="loading"><span class="spinner"></span></span>
+        </button>
+      </div>
+      <div class="input-row">
+        <button class="btn btn-icon" @click="$refs.photoInput.click()">
+          📷
+        </button>
+        <button class="btn btn-full" style="background:var(--bg-card)" @click="$refs.fileInput.click()">
+          Upload Image (OCR)
+        </button>
+      </div>
+      <input type="file" accept="image/*" capture="environment" class="hidden-input" x-ref="photoInput" @change="ocrImage($event)">
+      <input type="file" accept="image/*" class="hidden-input" x-ref="fileInput" @change="ocrImage($event)">
+    </div>
+
+    <!-- Charging Tab -->
+    <div x-show="tab === 'charging'" class="input-section">
+      <div class="input-row">
+        <button class="btn btn-success btn-full" @click="findCharging()" :disabled="chargingLoading">
+          <span x-show="!chargingLoading">Find Charging Stations</span>
+          <span x-show="chargingLoading"><span class="spinner"></span></span>
+        </button>
+      </div>
+      <div class="station-list">
+        <template x-if="stations.length === 0 && !chargingLoading">
+          <div class="empty">Tap above to find nearby EV charging.</div>
+        </template>
+        <template x-for="station in stations" :key="station.name + station.address">
+          <div class="station-item" @click="showStation(station)">
+            <div class="station-name" x-text="station.name"></div>
+            <div class="station-info">
+              <span x-text="station.address"></span> ·
+              <span x-text="station.distance_miles.toFixed(1) + ' mi'"></span> ·
+              <span x-text="station.connectors.join(', ')"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Alpine.js -->
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+
+<script>
+function delivery() {
+  return {
+    tab: 'stops',
+    stops: [],
+    legs: [],
+    totalTime: '',
+    totalDistance: '',
+    addressInput: '',
+    loading: false,
+    chargingLoading: false,
+    stations: [],
+    toast: '',
+    toastTimeout: null,
+    map: null,
+    routeLayer: null,
+    markersLayer: null,
+    currentLat: null,
+    currentLon: null,
+
+    init() {
+      // Initialize map
+      this.map = L.map('map').setView([39.8283, -98.5795], 4); // US center
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+      }).addTo(this.map);
+
+      this.routeLayer = L.layerGroup().addTo(this.map);
+      this.markersLayer = L.layerGroup().addTo(this.map);
+
+      // Get current location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            this.currentLat = pos.coords.latitude;
+            this.currentLon = pos.coords.longitude;
+            this.map.setView([this.currentLat, this.currentLon], 12);
+
+            // Add current location marker
+            L.circleMarker([this.currentLat, this.currentLon], {
+              radius: 8, fillColor: '#4f6df5', fillOpacity: 1, color: '#fff', weight: 2
+            }).addTo(this.map).bindPopup('You are here');
+          },
+          () => {},
+          { enableHighAccuracy: true }
+        );
+      }
+    },
+
+    async planRoute() {
+      const lines = this.addressInput.trim().split('\n').filter(l => l.trim());
+      if (lines.length < 2) {
+        this.showToast('Need at least 2 addresses');
+        return;
+      }
+      if (lines.length > 50) {
+        this.showToast('Maximum 50 addresses');
+        return;
+      }
+
+      this.loading = true;
+      this.tab = 'stops';
+
+      try {
+        const res = await fetch('/delivery/plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            addresses: lines,
+            start_address: null // Could add current location
+          })
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          this.showToast(data.error || 'Failed to plan route');
+          this.loading = false;
+          return;
+        }
+
+        // Update stops with leg times
+        this.stops = data.stops.map((stop, i) => ({
+          ...stop,
+          done: false,
+          legTime: data.legs[i] ? data.legs[i].duration_display : ''
+        }));
+
+        this.legs = data.legs;
+        this.totalTime = data.total_duration_display;
+        this.totalDistance = data.total_distance_display;
+        this.addressInput = '';
+
+        // Draw on map
+        this.drawRoute(data);
+
+        this.showToast(`Route optimized: ${this.totalTime}`);
+
+      } catch (e) {
+        this.showToast('Network error');
+      }
+
+      this.loading = false;
+    },
+
+    drawRoute(data) {
+      this.routeLayer.clearLayers();
+      this.markersLayer.clearLayers();
+
+      if (!data.stops || data.stops.length === 0) return;
+
+      const coords = data.stops.map(s => [s.lat, s.lon]);
+
+      // Draw polyline (simple straight lines, could use OSRM geometry)
+      L.polyline(coords, { color: '#4f6df5', weight: 4, opacity: 0.8 }).addTo(this.routeLayer);
+
+      // Add numbered markers
+      data.stops.forEach((stop, i) => {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="background:#4f6df5;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;border:2px solid #fff">${i + 1}</div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+        L.marker([stop.lat, stop.lon], { icon }).addTo(this.markersLayer)
+          .bindPopup(`<b>${i + 1}. ${stop.address}</b>`);
+      });
+
+      // Fit bounds
+      if (coords.length > 0) {
+        this.map.fitBounds(coords, { padding: [30, 30] });
+      }
+    },
+
+    toggleDone(i) {
+      this.stops[i].done = !this.stops[i].done;
+    },
+
+    clearStops() {
+      this.stops = [];
+      this.legs = [];
+      this.totalTime = '';
+      this.totalDistance = '';
+      this.routeLayer.clearLayers();
+      this.markersLayer.clearLayers();
+    },
+
+    async ocrImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      this.loading = true;
+      this.showToast('Extracting addresses...');
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch('/delivery/ocr', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+
+        if (data.success && data.addresses.length > 0) {
+          this.addressInput = data.addresses.join('\n');
+          this.tab = 'add';
+          this.showToast(`Found ${data.count} addresses`);
+        } else {
+          this.showToast('No addresses found in image');
+        }
+      } catch (e) {
+        this.showToast('OCR failed');
+      }
+
+      this.loading = false;
+      event.target.value = '';
+    },
+
+    async findCharging() {
+      if (!this.currentLat) {
+        this.showToast('Location not available');
+        return;
+      }
+
+      this.chargingLoading = true;
+
+      try {
+        const res = await fetch('/delivery/charging', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lat: this.currentLat,
+            lon: this.currentLon,
+            radius_miles: 15,
+            limit: 10
+          })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          this.stations = data.stations;
+          if (data.count === 0) {
+            this.showToast('No stations found nearby');
+          }
+        } else {
+          this.showToast(data.error || 'Failed to find stations');
+        }
+      } catch (e) {
+        this.showToast('Network error');
+      }
+
+      this.chargingLoading = false;
+    },
+
+    showStation(station) {
+      this.map.setView([station.lat, station.lon], 15);
+      L.marker([station.lat, station.lon])
+        .addTo(this.map)
+        .bindPopup(`<b>${station.name}</b><br>${station.address}<br>${station.connectors.join(', ')}`)
+        .openPopup();
+    },
+
+    showToast(msg) {
+      this.toast = msg;
+      clearTimeout(this.toastTimeout);
+      this.toastTimeout = setTimeout(() => { this.toast = ''; }, 3000);
+    }
+  };
+}
+</script>
+
+</body>
+</html>
