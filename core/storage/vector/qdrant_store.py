@@ -9,10 +9,23 @@ from typing import List, Dict, Any
 import uuid
 
 
+def _get_device() -> str:
+    """Pick the best available device: MPS (M1/M2 GPU) > CUDA > CPU"""
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+
 class QdrantStore:
     def __init__(self, url: str = "http://localhost:6333"):
         self.client = QdrantClient(url=url)
-        self.embedder = SentenceTransformer('all-mpnet-base-v2', device='cpu')  # Changed to CPU for compatibility
+        self.embedder = SentenceTransformer('all-mpnet-base-v2', device=_get_device())
         self.collection = "genesis_memories"
         self._init_collection()
     
