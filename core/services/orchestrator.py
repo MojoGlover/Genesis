@@ -58,18 +58,17 @@ class ChatOrchestrator:
     ) -> Dict[str, Any]:
         """Primary entry point for any UI.
 
-        Args:
-            message: Text message from user
-            voice_input: Optional audio file path
-
         Returns:
             {
-                "response": str,          # Assistant's text reply
-                "state": str,             # Current conversation state
-                "task_ready": bool,       # Whether a task was detected
-                "pending_task": dict|None, # Task awaiting confirmation
-                "tasks": list,            # Current task queue
-                "voice_audio": str|None,  # TTS audio path if available
+                "response": str,
+                "state": str,
+                "task_ready": bool,
+                "pending_task": dict|None,
+                "tasks": list,
+                "voice_audio": str|None,
+                "code": str|None,
+                "execution_log": list,
+                "suggested_filename": str|None,
             }
         """
         # Handle voice input
@@ -86,14 +85,16 @@ class ChatOrchestrator:
 
         lower_msg = message.lower().strip()
 
-        # Handle confirmation flow
+        # Handle confirmation flow (3 options: yes / not yet / queue)
         if self._state == ConversationState.AWAITING_CONFIRMATION:
-            if lower_msg in ("yes", "y", "confirm", "do it"):
-                return self._confirm_task()
-            if lower_msg in ("no", "n", "cancel", "nevermind"):
-                return self._cancel_task()
+            if lower_msg in ("yes", "y", "do it", "build it", "go ahead", "make it"):
+                return self._execute_immediately()
+            if any(w in lower_msg for w in ("queue", "later", "save for later")):
+                return self._queue_task()
+            if lower_msg in ("no", "n", "not yet", "cancel", "nevermind"):
+                return self._decline_task()
 
-        # Handle "build it" type commands
+        # Handle explicit "build it" command — detect and execute, no extra confirmation
         build_commands = ("build it", "create it", "do it", "make it", "go ahead")
         if any(cmd in lower_msg for cmd in build_commands):
             return self._handle_build_command(message)
@@ -106,7 +107,7 @@ class ChatOrchestrator:
     # ------------------------------------------------------------------
 
     def _handle_conversation(self, message: str) -> Dict[str, Any]:
-        """Normal conversational turn"""
+        """Normal conversational turn — detects task and asks the one question"""
         context = self._conversation.get_context(limit=10)
 
         # Generate response
@@ -119,6 +120,12 @@ class ChatOrchestrator:
 
         if task_ready:
             self._pending_task = detection.get("task")
+            self._state = ConversationState.AWAITING_CONFIRMATION
+            task_name = self._pending_task["name"]
+            response_text += (
+                f"\n\nI can build **{task_name}** for you. "
+                "Want me to build it now? *(yes / not yet / queue for later)*"
+            )
 
         # Record assistant response
         self._conversation.add_message("assistant", response_text)
@@ -136,45 +143,52 @@ class ChatOrchestrator:
         )
 
     def _handle_build_command(self, message: str) -> Dict[str, Any]:
-        """Handle 'build it' type commands"""
+        """Handle explicit 'build it' — detect task and execute immediately"""
         context = self._conversation.get_context(limit=10)
         detection = self._task_detection.detect(message, context)
 
         if detection.get("ready") and detection.get("task"):
             self._pending_task = detection["task"]
-            self._state = ConversationState.AWAITING_CONFIRMATION
-
-            task_name = self._pending_task["name"]
-            task_desc = self._pending_task["description"]
-            response = f"I'll create: **{task_name}**\n{task_desc}\n\nConfirm? (yes/no)"
-
-            self._conversation.add_message("assistant", response)
-
-            return self._build_response(response)
+            return self._execute_immediately()
         else:
             response = "I'm not sure exactly what to build yet. Can you describe what you want in more detail?"
             self._conversation.add_message("assistant", response)
             return self._build_response(response)
 
-    def _confirm_task(self) -> Dict[str, Any]:
-        """Confirm and add pending task to queue"""
+    def _execute_immediately(self) -> Dict[str, Any]:
+        """Execute the pending task right now"""
         if not self._pending_task:
             self._state = ConversationState.READY
-            response = "No task to confirm. What would you like to build?"
+            response = "No task to build. What would you like?"
             self._conversation.add_message("assistant", response)
             return self._build_response(response)
 
-        add_result = self._task_execution.add_task(self._pending_task)
         task_name = self._pending_task["name"]
+        suggested_file = self._pending_task.get("estimated_file", "script.py")
 
-        # Reset confirmation state
-        self._state = ConversationState.READY
+        # Add to queue so it's tracked, then execute
+        add_result = self._task_execution.add_task(self._pending_task)
         self._pending_task = None
 
-        if add_result.get("success"):
-            response = f"Added to queue: **{task_name}**\nClick 'Execute Task' to generate code!"
+        if not add_result.get("success"):
+            self._state = ConversationState.READY
+            response = f"Failed to start: {add_result.get('error', 'Unknown error')}"
+            self._conversation.add_message("assistant", response)
+            return self._build_response(response)
+
+        task_id = add_result.get("task_id")
+        self._selected_task_id = task_id
+        self._state = ConversationState.EXECUTING
+
+        # Execute
+        exec_result = self._task_execution.execute_task(task_id)
+        self._state = ConversationState.READY
+
+        if exec_result.get("success"):
+            iters = exec_result.get("iterations", 0)
+            response = f"Built **{task_name}**! ({iters} iterations)"
         else:
-            response = f"Failed to add task: {add_result.get('error', 'Queue full')}"
+            response = f"Build attempted for **{task_name}** but hit issues. Check the execution logs."
 
         self._conversation.add_message("assistant", response)
 
@@ -183,13 +197,53 @@ class ChatOrchestrator:
             tts_result = self._voice.text_to_speech(response)
             voice_audio = tts_result.get("audio_path")
 
-        return self._build_response(response, voice_audio=voice_audio)
+        return self._build_response(
+            response,
+            voice_audio=voice_audio,
+            code=exec_result.get("code"),
+            execution_log=exec_result.get("execution_log", []),
+            suggested_filename=f"/workspace/{suggested_file}",
+        )
 
-    def _cancel_task(self) -> Dict[str, Any]:
-        """Cancel pending task confirmation"""
+    def _queue_task(self) -> Dict[str, Any]:
+        """Queue pending task for later execution"""
+        if not self._pending_task:
+            self._state = ConversationState.READY
+            response = "No task to queue. What would you like to build?"
+            self._conversation.add_message("assistant", response)
+            return self._build_response(response)
+
+        add_result = self._task_execution.add_task(self._pending_task)
+        task_name = self._pending_task["name"]
+        suggested_file = self._pending_task.get("estimated_file", "script.py")
+
         self._state = ConversationState.READY
         self._pending_task = None
-        response = "Okay, cancelled. What would you like to build?"
+
+        if add_result.get("success"):
+            self._selected_task_id = add_result.get("task_id")
+            response = f"Queued **{task_name}** for later. Click 'Execute Task' when ready!"
+        else:
+            response = f"Failed to queue: {add_result.get('error', 'Queue full')}"
+
+        self._conversation.add_message("assistant", response)
+
+        voice_audio = None
+        if self._voice.tts_available:
+            tts_result = self._voice.text_to_speech(response)
+            voice_audio = tts_result.get("audio_path")
+
+        return self._build_response(
+            response,
+            voice_audio=voice_audio,
+            suggested_filename=f"/workspace/{suggested_file}",
+        )
+
+    def _decline_task(self) -> Dict[str, Any]:
+        """User said 'not yet' — move on without queuing"""
+        self._state = ConversationState.READY
+        self._pending_task = None
+        response = "No problem! Let me know when you're ready."
         self._conversation.add_message("assistant", response)
         return self._build_response(response)
 
@@ -210,7 +264,7 @@ class ChatOrchestrator:
         """Select a task from dropdown choice string.
 
         Returns:
-            {"success": bool, "task_id": str, "details": str}
+            {"success": bool, "task_id": str, "details": str, "suggested_filename": str}
         """
         if not task_choice or task_choice == "No tasks":
             self._selected_task_id = None
@@ -228,6 +282,7 @@ class ChatOrchestrator:
                 return {"success": False, "task_id": None, "details": "# Task not found"}
 
             self._selected_task_id = task_id
+            suggested_file = task.get("estimated_file", "script.py")
 
             details = f"""# Task: {task['name']}
 # Status: {task['status'].title()}
@@ -240,12 +295,17 @@ Description:
 Requirements:
 {task['details']}
 
-Estimated File: {task.get('estimated_file', 'script.py')}
+File: {suggested_file}
 \'\'\'
 
 # Click 'Execute Task' to generate code for this task
 """
-            return {"success": True, "task_id": task_id, "details": details}
+            return {
+                "success": True,
+                "task_id": task_id,
+                "details": details,
+                "suggested_filename": f"/workspace/{suggested_file}",
+            }
 
         except Exception as e:
             logger.error(f"Error selecting task: {e}")
@@ -282,6 +342,9 @@ Estimated File: {task.get('estimated_file', 'script.py')}
         state_override: Optional[str] = None,
         task_ready: bool = False,
         voice_audio: Optional[str] = None,
+        code: Optional[str] = None,
+        execution_log: Optional[list] = None,
+        suggested_filename: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build a standardized response dict"""
         return {
@@ -291,6 +354,9 @@ Estimated File: {task.get('estimated_file', 'script.py')}
             "pending_task": self._pending_task,
             "tasks": self._task_execution.get_all_tasks(),
             "voice_audio": voice_audio,
+            "code": code,
+            "execution_log": execution_log or [],
+            "suggested_filename": suggested_filename,
         }
 
 

@@ -92,13 +92,11 @@ class TaskExecutionService:
             if task and task["status"] not in ["queued", "pending"]:
                 task = None
 
-        # Fallback to first queued/pending task
+        # Fallback to most recent queued/pending task
         if not task:
             all_tasks = self._task_queue.get_all_tasks()
-            task = next(
-                (t for t in all_tasks if t["status"] in ["queued", "pending"]),
-                None,
-            )
+            pending = [t for t in all_tasks if t["status"] in ["queued", "pending"]]
+            task = pending[-1] if pending else None
 
         if not task:
             return {
@@ -112,12 +110,18 @@ class TaskExecutionService:
         # Update status to in_progress
         self._task_queue.update_task_status(task["id"], "in_progress")
 
+        # Build task description for the agent
+        task_description = f"{task['name']}: {task['description']}"
+        if task.get("details"):
+            task_description += f"\nRequirements: {task['details']}"
+
+        filepath = f"/workspace/{task.get('estimated_file', 'script.py')}"
+
         # Execute with engineer agent
-        result = self._agent.execute({
-            "objective": task["name"],
-            "description": task["description"],
-            "requirements": task["details"],
-        })
+        result = self._agent.run_coding_task(
+            task=task_description,
+            filepath=filepath,
+        )
 
         # Update task status
         final_status = "complete" if result.get("success") else "failed"
@@ -125,7 +129,7 @@ class TaskExecutionService:
 
         return {
             "success": result.get("success", False),
-            "code": result.get("code", "# No code generated"),
+            "code": result.get("final_code", "# No code generated"),
             "iterations": result.get("iterations", 0),
             "status": final_status,
             "execution_log": result.get("execution_history", []),
@@ -148,7 +152,8 @@ class TaskExecutionService:
         tasks = self.get_all_tasks()
         if not tasks:
             return ["No tasks"]
-        return [f"{t['id']}: {t['name']} ({t['status']})" for t in tasks]
+        # Newest first so the most recent task is the default selection
+        return [f"{t['id']}: {t['name']} ({t['status']})" for t in reversed(tasks)]
 
 
 # Singleton

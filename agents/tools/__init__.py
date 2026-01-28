@@ -10,6 +10,8 @@ from . import file_ops
 from . import code_executor
 from . import package_manager
 from . import workspace
+from . import web_tools
+from . import location_tools
 
 # Export commonly used functions
 __all__ = [
@@ -18,7 +20,9 @@ __all__ = [
     'file_ops',
     'code_executor',
     'package_manager',
-    'workspace'
+    'workspace',
+    'web_tools',
+    'location_tools',
 ]
 
 
