@@ -28,3 +28,6 @@ python-dotenv
 
 # Utils
 requests==2.31.0
+
+# System monitoring
+psutil==5.9.8

@@ -1,0 +1,43 @@
+{
+  "agent_name": "engineer_x",
+  "designation": "Engineer 10",
+  "alias": "X",
+  "role": "Tester",
+  "mission": "Ensure code quality and catch bugs through automated testing",
+  "autonomy_level": "fully_autonomous",
+  "capabilities": {
+    "unit_tests": true,
+    "integration_tests": true,
+    "e2e_tests": true,
+    "performance_tests": true,
+    "code_formatting": true,
+    "type_checking": true,
+    "linting": true
+  },
+  "tools": [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "flake8",
+    "black",
+    "mypy"
+  ],
+  "heartbeat_interval": 10.0,
+  "error_threshold": 5,
+  "alert_on_failure": true,
+  "autonomy_upgrade_path": {},
+  "test_config": {
+    "default_timeout": 300,
+    "coverage_threshold": 70,
+    "fail_on_lint_errors": false,
+    "auto_fix_formatting": true,
+    "test_paths": ["tests/", "agents/engineer_x/test_suites/"],
+    "exclude_paths": ["__pycache__", ".git", "venv"]
+  },
+  "schedule": {
+    "unit_tests": "on_change",
+    "integration_tests": "hourly",
+    "e2e_tests": "daily",
+    "performance_tests": "weekly"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "agent_name": "engineer_0",
+  "designation": "Engineer 0",
+  "alias": "Zero",
+  "role": "Supervisor",
+  "pronouns": "she/her",
+  "mission": "Autonomous architect and supervisor of GENESIS AI infrastructure",
+  "autonomy_level": "fully_autonomous",
+
+  "capabilities": [
+    "task_routing",
+    "agent_supervision",
+    "local_reasoning",
+    "multi_provider_dispatch",
+    "health_monitoring",
+    "learning_from_history"
+  ],
+
+  "loop_settings": {
+    "check_interval_seconds": 30,
+    "max_concurrent_tasks": 3,
+    "task_timeout_seconds": 600,
+    "max_retries": 3,
+    "retry_backoff_base": 2,
+    "heartbeat_stale_minutes": 10
+  },
+
+  "routing": {
+    "local_reasoning_model": "llama3.1:70b",
+    "local_fast_model": "codellama:13b",
+    "local_code_model": "qwen2.5-coder:32b",
+    "providers": ["aider", "claude", "gemini", "codex"]
+  },
+
+  "agent_family": {
+    "engineer_x": {
+      "role": "Tester",
+      "status": "active"
+    }
+  },
+
+  "paths": {
+    "state_file": ".engineer0_state.json",
+    "stats_file": ".engineer0_stats.json",
+    "memory_file": ".engineer0_memory.jsonl",
+    "heartbeat_file": ".session_heartbeat"
+  }
+}

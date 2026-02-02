@@ -1,0 +1,25 @@
+{
+  "priorities": [
+    {
+      "id": "phase1_monitoring",
+      "name": "Build Monitoring Infrastructure",
+      "prompt": "Continue building the monitoring infrastructure for GENESIS. Check what exists in core/monitoring/ and build the next component: health monitor, error logger, alerting system (ntfy.sh), or web dashboard. Use the existing message bus and agent framework."
+    },
+    {
+      "id": "phase2_agents",
+      "name": "Extract Specialized Agents",
+      "prompt": "Continue extracting specialized agents using the AgentBase framework in core/framework/. Priority order: UI Agent (Gradio wrapper), Voice Agent, Testing Agent. Check what exists in agents/ and build the next one."
+    },
+    {
+      "id": "phase3_mobile",
+      "name": "Complete Mobile PWA",
+      "prompt": "Continue work on the mobile PWA in static/. Check current state and add any missing features from the roadmap: voice input improvements, GPS tracking, health status display."
+    },
+    {
+      "id": "phase4_templates",
+      "name": "Build Agent Templates",
+      "prompt": "Create the agent template system in templates/agent_template/ for easy agent creation. Build template files and the scripts/create_agent.py helper script."
+    }
+  ],
+  "notes": "Edit this file to change autonomous priorities. The loop will work through these in order."
+}

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,11 +10,25 @@ from api.ai import router as ai_router
 from api.location import router as location_router
 from api.chat import router as chat_router
 from api.audio import router as audio_router
-from api.delivery import router as delivery_router
+from core.monitoring.dashboard import router as dashboard_router
+from core.monitoring.health import router as health_router
+from core.monitoring.startup import init_monitoring, shutdown_monitoring
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan - initialize and cleanup resources."""
+    # Startup
+    await init_monitoring(app)
+    yield
+    # Shutdown
+    await shutdown_monitoring()
+
 
 app = FastAPI(
     title="GENESIS",
     version="0.6.0",
+    lifespan=lifespan,
 )
 
 # CORS — allow Tailscale CGNAT range (100.x.x.x) + local dev
@@ -39,4 +55,5 @@ app.include_router(ai_router)
 app.include_router(location_router)
 app.include_router(chat_router)
 app.include_router(audio_router)
-app.include_router(delivery_router)
+app.include_router(health_router)  # /health, /readiness, /liveness, /metrics
+app.include_router(dashboard_router)  # /dashboard/*
