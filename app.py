@@ -11,7 +11,9 @@ from api.location import router as location_router
 from api.chat import router as chat_router
 from api.audio import router as audio_router
 from core.monitoring.dashboard import router as dashboard_router
+from core.monitoring.dashboard_v2 import router as monitor_router
 from core.monitoring.health import router as health_router
+from core.monitoring.websocket import router as ws_router
 from core.monitoring.startup import init_monitoring, shutdown_monitoring
 
 
@@ -57,3 +59,5 @@ app.include_router(chat_router)
 app.include_router(audio_router)
 app.include_router(health_router)  # /health, /readiness, /liveness, /metrics
 app.include_router(dashboard_router)  # /dashboard/*
+app.include_router(monitor_router)  # /monitor/ (real-time dashboard v2)
+app.include_router(ws_router)  # /ws/monitor (WebSocket)

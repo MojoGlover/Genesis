@@ -33,6 +33,8 @@ from fastapi import FastAPI
 from .monitor import get_health_monitor, AgentMetrics
 from .logger import get_error_logger
 from .alerting import get_alert_system, AlertSeverity, alert_degraded, alert_critical
+from .metrics import get_metrics_collector
+from .websocket import get_connection_manager
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +111,17 @@ async def init_monitoring(app: Optional[FastAPI] = None) -> None:
     monitor.on_agent_dead(on_dead)
     monitor.on_agent_recovered(on_recovered)
     
-    # 4. Register core services for monitoring
+    # 4. Start metrics collector
+    metrics = get_metrics_collector()
+    metrics.start()
+    logger.info("Metrics collector started")
+
+    # 5. Start WebSocket background broadcasts
+    ws_manager = get_connection_manager()
+    ws_manager.start_background_broadcasts()
+    logger.info("WebSocket broadcasts started")
+
+    # 6. Register core services for monitoring
     _register_core_services(monitor)
     
     _initialized = True
@@ -136,7 +148,13 @@ async def shutdown_monitoring() -> None:
     monitor = get_health_monitor()
     monitor.stop()
     
-    # Error logger auto-flushes on write
+    # Stop metrics collector
+    metrics = get_metrics_collector()
+    metrics.stop()
+    
+    # Stop WebSocket broadcasts
+    ws_manager = get_connection_manager()
+    ws_manager.stop_background_broadcasts()
     
     _initialized = False
     logger.info("GENESIS monitoring system shutdown complete")

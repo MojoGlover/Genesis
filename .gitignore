@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Runtime data
+data/memory.db
+data/qdrant/
+
+# Runtime state files
+.autonomous_state.json
+.engineer0_memory.db
+.session_heartbeat
+.location.json
+
+# Claude Code
+.claude/
+
+# Environment
+.env
+.venv/
+venv/
+
+# OS
+.DS_Store
