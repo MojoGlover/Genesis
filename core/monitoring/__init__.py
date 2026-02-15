@@ -11,6 +11,13 @@ Components:
 - MetricsCollector: Time-series metrics storage
 - CircuitBreaker: Resilient error handling
 - WebSocket: Real-time dashboard updates
+- AutoRecovery: Graduated agent recovery
+- SystemMetricsAgent: System resource collection
+- IncidentTracker: Correlate alerts/errors into incidents
+- LogAggregator: Centralized structured logging with search
+- TrendAnalyzer: Anomaly detection and trend analysis
+- SLATracker: SLA compliance and uptime tracking
+- Tracer: Distributed tracing across agents
 """
 
 # Core imports (no FastAPI dependency)
@@ -21,6 +28,14 @@ from .registry import AgentRegistry, get_agent_registry
 from .metrics import MetricsCollector, get_metrics_collector, record_metric, record_counter, record_gauge, MetricType
 from .circuit_breaker import CircuitBreaker, get_circuit_registry, CircuitConfig, CircuitState, CircuitOpenError, circuit_protected
 from .throttle import AlertThrottle, get_alert_throttle, ThrottleConfig, throttled_alert
+from .resource_monitor import ResourceMonitor, get_resource_monitor, ResourceMonitorConfig, ResourceThreshold, ThresholdLevel
+from .auto_recovery import AutoRecovery, get_auto_recovery, AutoRecoveryConfig, RecoveryStage, RecoveryOutcome
+from .system_metrics import SystemMetricsAgent, get_system_metrics_agent, SystemSnapshot
+from .incident_tracker import IncidentTracker, get_incident_tracker, IncidentTrackerConfig, Incident, IncidentStatus, IncidentSeverity, EventType
+from .log_aggregator import LogAggregator, get_log_aggregator, LogAggregatorConfig, LogLevel, LogEntry, log_debug, log_info, log_warning, log_error, log_critical
+from .trend_analyzer import TrendAnalyzer, get_trend_analyzer, TrendAnalyzerConfig, TrendDirection, AnomalyType, AnomalySeverity, Anomaly, TrendAnalysis, MetricBaseline
+from .sla_tracker import SLATracker, get_sla_tracker, SLATrackerConfig, AvailabilityState, SLABreachType, SLATarget, SLABreach, MaintenanceWindow
+from .trace import Tracer, get_tracer, TracerConfig, Trace, Span, SpanStatus, trace_context, traced
 
 
 # Lazy import for FastAPI-dependent modules
@@ -81,4 +96,67 @@ __all__ = [
     "CircuitState",
     "CircuitOpenError",
     "circuit_protected",
+    # Resource Monitor
+    "ResourceMonitor",
+    "get_resource_monitor",
+    "ResourceMonitorConfig",
+    "ResourceThreshold",
+    "ThresholdLevel",
+    # Auto Recovery
+    "AutoRecovery",
+    "get_auto_recovery",
+    "AutoRecoveryConfig",
+    "RecoveryStage",
+    "RecoveryOutcome",
+    # System Metrics
+    "SystemMetricsAgent",
+    "get_system_metrics_agent",
+    "SystemSnapshot",
+    # Incident Tracker
+    "IncidentTracker",
+    "get_incident_tracker",
+    "IncidentTrackerConfig",
+    "Incident",
+    "IncidentStatus",
+    "IncidentSeverity",
+    "EventType",
+    # Log Aggregator
+    "LogAggregator",
+    "get_log_aggregator",
+    "LogAggregatorConfig",
+    "LogLevel",
+    "LogEntry",
+    "log_debug",
+    "log_info",
+    "log_warning",
+    "log_error",
+    "log_critical",
+    # Trend Analyzer
+    "TrendAnalyzer",
+    "get_trend_analyzer",
+    "TrendAnalyzerConfig",
+    "TrendDirection",
+    "AnomalyType",
+    "AnomalySeverity",
+    "Anomaly",
+    "TrendAnalysis",
+    "MetricBaseline",
+    # SLA Tracker
+    "SLATracker",
+    "get_sla_tracker",
+    "SLATrackerConfig",
+    "AvailabilityState",
+    "SLABreachType",
+    "SLATarget",
+    "SLABreach",
+    "MaintenanceWindow",
+    # Distributed Tracing
+    "Tracer",
+    "get_tracer",
+    "TracerConfig",
+    "Trace",
+    "Span",
+    "SpanStatus",
+    "trace_context",
+    "traced",
 ]
