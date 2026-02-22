@@ -16,27 +16,30 @@ logger = logging.getLogger(__name__)
 def _render_queue(tasks: List[Dict]) -> str:
     """Render HTML for task queue display (UI concern)"""
     if not tasks:
-        return "<div style='padding: 20px; text-align: center; color: #888;'>No tasks in queue</div>"
+        return "<div class='cb-empty'>No tasks in queue</div>"
 
-    html = "<div style='padding: 10px;'>"
+    STATUS_DOT = {
+        "queued":      "cb-dot cb-dot--paused",
+        "pending":     "cb-dot cb-dot--paused",
+        "in_progress": "cb-dot cb-dot--busy",
+        "complete":    "cb-dot cb-dot--online",
+        "failed":      "cb-dot cb-dot--offline",
+    }
+
+    rows = []
     for task in reversed(tasks):
-        status_emoji = {
-            "queued": "\u23f3",
-            "in_progress": "\U0001f504",
-            "complete": "\u2705",
-            "failed": "\u274c",
-            "pending": "\u23f3",
-        }.get(task.get("status", ""), "\u2753")
+        dot_cls = STATUS_DOT.get(task.get("status", ""), "cb-dot cb-dot--paused")
+        rows.append(f"""
+        <div class="cb-panel cb-col" style="gap:4px;margin-bottom:6px;">
+            <div class="cb-row">
+                <span class="{dot_cls}"></span>
+                <span class="cb-value">{task['name']}</span>
+                <span class="cb-muted" style="margin-left:auto">{task.get('status','').title()}</span>
+            </div>
+            <div class="cb-label">{task.get('description','')}</div>
+        </div>""")
 
-        html += f"""
-        <div style='margin: 10px 0; padding: 12px; border: 1px solid #ddd; border-radius: 8px; background: #f9f9f9;'>
-            <div style='font-weight: bold;'>{status_emoji} {task['name']}</div>
-            <div style='font-size: 0.9em; color: #666; margin-top: 4px;'>{task['description']}</div>
-            <div style='font-size: 0.8em; color: #999; margin-top: 4px;'>Status: {task.get('status', 'unknown').title()}</div>
-        </div>
-        """
-    html += "</div>"
-    return html
+    return "<div class='cb-col' style='gap:0'>" + "".join(rows) + "</div>"
 
 
 def _format_logs(execution_log: List[Dict]) -> str:
@@ -73,6 +76,130 @@ def _state_to_status(result: Dict) -> str:
     if result.get("task_ready"):
         return "\u23f3 *Task detected*"
     return "*Ready*"
+
+
+
+GENESIS_CSS = """
+/* ── Computer Black Brand Theme for GENESIS ── */
+footer { display: none !important; }
+
+/* Dark header bar */
+.gradio-container::before {
+    content: "";
+    display: block;
+}
+
+#genesis-topbar {
+    background: #0f172a;
+    color: #f1f5f9;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid #1a3a4a;
+}
+
+#genesis-brand {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f1f5f9;
+    letter-spacing: 0.5px;
+}
+
+#genesis-brand-sub {
+    font-size: 10px;
+    color: #4a6a7a;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+
+.genesis-tab {
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid #1a3a4a;
+    background: none;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.genesis-tab:hover { background: #1e293b; color: #f1f5f9; }
+.genesis-tab.active { background: rgba(99,102,241,0.15); color: #f1f5f9; border-color: #6366f1; }
+
+#genesis-status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #00d4a0;
+    display: inline-block;
+    box-shadow: 0 0 6px #00d4a0;
+}
+
+#genesis-status-dot.busy { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+/* Task queue card styling */
+.queue-card {
+    border-left: 3px solid #6366f1 !important;
+    background: #0f172a !important;
+}
+"""
+
+GENESIS_JS = """
+function() {
+    function injectTopbar() {
+        if (document.getElementById('genesis-topbar')) return;
+        const container = document.querySelector('.gradio-container');
+        if (!container) return;
+
+        const bar = document.createElement('div');
+        bar.id = 'genesis-topbar';
+        bar.innerHTML = `
+            <div id="genesis-brand">
+                GENESIS
+                <div id="genesis-brand-sub">Computer Black</div>
+            </div>
+            <button class="genesis-tab active">💬 Chat</button>
+            <button class="genesis-tab">📋 Tasks</button>
+            <button class="genesis-tab">⚡ Execute</button>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+                <span id="genesis-status-dot"></span>
+                <span style="font-size:12px;color:#94a3b8;" id="genesis-status-text">Ready</span>
+            </div>
+        `;
+
+        bar.querySelectorAll('.genesis-tab').forEach(btn => {
+            btn.addEventListener('click', function() {
+                bar.querySelectorAll('.genesis-tab').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        container.insertBefore(bar, container.firstChild);
+    }
+
+    // Setup Enter key for GENESIS chat inputs
+    function setupInputs() {
+        const textareas = document.querySelectorAll('textarea');
+        textareas.forEach(ta => {
+            if (ta._genesis) return;
+            ta._genesis = true;
+            ta.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    // Find the primary send button
+                    const sendBtn = document.querySelector('button[aria-label*="Send"], button.primary');
+                    if (sendBtn) { e.preventDefault(); sendBtn.click(); }
+                }
+            });
+        });
+    }
+
+    function init() { injectTopbar(); setupInputs(); }
+    init();
+    new MutationObserver(init).observe(document.body, { childList: true, subtree: true });
+    return [];
+}
+"""
+
 
 
 class GradioInterface:
@@ -159,9 +286,7 @@ class GradioInterface:
     def create_interface(self):
         """Create the Gradio interface"""
 
-        with gr.Blocks(title="GENESIS Engineer", theme=gr.themes.Soft()) as interface:
-            gr.Markdown("# \U0001f916 GENESIS - Conversational AI Engineer")
-            gr.Markdown("Describe what you want and GENESIS will offer to build it.")
+        with gr.Blocks(title="GENESIS Engineer", theme=gr.themes.Soft(), css=GENESIS_CSS) as interface:
 
             with gr.Row():
                 # Left: Chat
@@ -325,6 +450,8 @@ class GradioInterface:
                 inputs=[geo_lat, geo_lon, geo_acc],
                 outputs=location_status,
             )
+
+            interface.load(fn=None, js=GENESIS_JS)
 
         return interface
 
