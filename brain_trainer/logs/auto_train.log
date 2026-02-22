@@ -1,0 +1,365 @@
+[2026-02-17 21:22:47] === Auto-train check ===
+[2026-02-17 21:22:47] On battery power. Skipping to preserve battery.
+[2026-02-18 02:00:01] === Auto-train check ===
+[2026-02-18 02:00:01] Rebuilding engineer0_full.jsonl from cb_core + engineer0 sets...
+Set 1 (CB core):     85 samples
+Set 2 (Engineer0):   42 samples
+Merged total:        127 samples
+Output: /Users/darnieglover/ai/GENESIS/brain_trainer/training_data/engineer0_full.jsonl
+
+To train: cd ~/ai/GENESIS/brain_trainer && python3 train.py --data engineer0_full.jsonl
+[2026-02-18 02:00:01] Auto-approving all training samples...
+Auto-approved 127 samples
+[2026-02-18 02:00:02] === Auto-train check ===
+[2026-02-18 02:00:02] Rebuilding engineer0_full.jsonl from cb_core + engineer0 sets...
+Set 1 (CB core):     85 samples
+Set 2 (Engineer0):   42 samples
+Merged total:        127 samples
+Output: /Users/darnieglover/ai/GENESIS/brain_trainer/training_data/engineer0_full.jsonl
+
+To train: cd ~/ai/GENESIS/brain_trainer && python3 train.py --data engineer0_full.jsonl
+[2026-02-18 02:00:02] Auto-approving all training samples...
+Auto-approved 127 samples
+[2026-02-18 02:00:06] Starting training on engineer0_full.jsonl...
+[2026-02-18 02:00:06] Starting training on engineer0_full.jsonl...
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/datapoints/__init__.py:12: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/transforms/v2/__init__.py:54: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/datapoints/__init__.py:12: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/transforms/v2/__init__.py:54: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+Generating 300 training samples for BlackZero...
+Generated 300 training samples → training_data/blackzero.jsonl
+Generated 300 samples
+
+============================================================
+BlackZero / Engineer0 Brain Training
+Base model: mistralai/Mistral-7B-v0.1
+Epochs: 3
+Output: output/blackzero-qlora
+============================================================
+
+Generating train split: 0 examples [00:00, ? examples/s]Generating train split: 300 examples [00:00, 71861.29 examples/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Generating 300 training samples for BlackZero...
+Generated 300 training samples → training_data/blackzero.jsonl
+Generated 300 samples
+
+============================================================
+BlackZero / Engineer0 Brain Training
+Base model: mistralai/Mistral-7B-v0.1
+Epochs: 3
+Output: output/blackzero-qlora
+============================================================
+
+Dataset: 285 train, 15 val samples
+Loading base model: mistralai/Mistral-7B-v0.1
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Dataset: 285 train, 15 val samples
+Loading base model: mistralai/Mistral-7B-v0.1
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files:  50%|█████     | 1/2 [02:34<02:34, 154.43s/it]Fetching 2 files: 100%|██████████| 2/2 [02:34<00:00, 77.21s/it] 
+Traceback (most recent call last):
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 183, in <module>
+    main()
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 170, in main
+    adapter_path = trainer.train()
+                   ^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 176, in train
+    model, tokenizer = self.load_model_and_tokenizer()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 101, in load_model_and_tokenizer
+    model = AutoModelForCausalLM.from_pretrained(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/models/auto/auto_factory.py", line 372, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4109, in from_pretrained
+Fetching 2 files:  50%|█████     | 1/2 [02:34<02:34, 154.63s/it]    load_info = cls._load_pretrained_model(model, state_dict, checkpoint_files, load_config)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4196, in _load_pretrained_model
+Fetching 2 files: 100%|██████████| 2/2 [02:34<00:00, 77.32s/it] 
+    caching_allocator_warmup(model, expanded_device_map, load_config.hf_quantizer)
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4762, in caching_allocator_warmup
+    _ = torch.empty(byte_count // 2, dtype=torch.float16, device=device, requires_grad=False)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: empty() received an invalid combination of arguments - got (float, requires_grad=bool, device=torch.device, dtype=torch.dtype), but expected one of:
+ * (tuple of ints size, *, tuple of names names, torch.memory_format memory_format = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+ * (tuple of ints size, *, torch.memory_format memory_format = None, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+
+Traceback (most recent call last):
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 183, in <module>
+    main()
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 170, in main
+    adapter_path = trainer.train()
+                   ^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 176, in train
+    model, tokenizer = self.load_model_and_tokenizer()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 101, in load_model_and_tokenizer
+    model = AutoModelForCausalLM.from_pretrained(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/models/auto/auto_factory.py", line 372, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4109, in from_pretrained
+    load_info = cls._load_pretrained_model(model, state_dict, checkpoint_files, load_config)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4196, in _load_pretrained_model
+    caching_allocator_warmup(model, expanded_device_map, load_config.hf_quantizer)
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4762, in caching_allocator_warmup
+    _ = torch.empty(byte_count // 2, dtype=torch.float16, device=device, requires_grad=False)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: empty() received an invalid combination of arguments - got (float, requires_grad=bool, device=torch.device, dtype=torch.dtype), but expected one of:
+ * (tuple of ints size, *, tuple of names names, torch.memory_format memory_format = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+ * (tuple of ints size, *, torch.memory_format memory_format = None, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+
+[2026-02-18 02:02:54] ❌ Training failed (exit 1). Check log for details.
+[2026-02-18 02:02:54] ❌ Training failed (exit 1). Check log for details.
+[2026-02-19 02:00:01] === Auto-train check ===
+[2026-02-19 02:00:01] Rebuilding engineer0_full.jsonl from cb_core + engineer0 sets...
+Set 1 (CB core):     85 samples
+Set 2 (Engineer0):   42 samples
+Merged total:        127 samples
+Output: /Users/darnieglover/ai/GENESIS/brain_trainer/training_data/engineer0_full.jsonl
+
+To train: cd ~/ai/GENESIS/brain_trainer && python3 train.py --data engineer0_full.jsonl
+[2026-02-19 02:00:01] Auto-approving all training samples...
+Auto-approved 127 samples
+[2026-02-19 02:00:04] === Auto-train check ===
+[2026-02-19 02:00:04] Rebuilding engineer0_full.jsonl from cb_core + engineer0 sets...
+Set 1 (CB core):     85 samples
+Set 2 (Engineer0):   42 samples
+Merged total:        127 samples
+Output: /Users/darnieglover/ai/GENESIS/brain_trainer/training_data/engineer0_full.jsonl
+
+To train: cd ~/ai/GENESIS/brain_trainer && python3 train.py --data engineer0_full.jsonl
+[2026-02-19 02:00:04] Auto-approving all training samples...
+Auto-approved 127 samples
+[2026-02-19 02:00:06] Starting training on engineer0_full.jsonl...
+[2026-02-19 02:00:06] Starting training on engineer0_full.jsonl...
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/datapoints/__init__.py:12: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/transforms/v2/__init__.py:54: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/datapoints/__init__.py:12: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/transforms/v2/__init__.py:54: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+Generating 300 training samples for BlackZero...
+Generated 300 training samples → training_data/blackzero.jsonl
+Generated 300 samples
+
+============================================================
+BlackZero / Engineer0 Brain Training
+Base model: mistralai/Mistral-7B-v0.1
+Epochs: 3
+Output: output/blackzero-qlora
+============================================================
+
+Generating train split: 0 examples [00:00, ? examples/s]Generating train split: 300 examples [00:00, 72674.78 examples/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Dataset: 285 train, 15 val samples
+Loading base model: mistralai/Mistral-7B-v0.1
+Traceback (most recent call last):
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 183, in <module>
+    main()
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 170, in main
+    adapter_path = trainer.train()
+                   ^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 176, in train
+    model, tokenizer = self.load_model_and_tokenizer()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 101, in load_model_and_tokenizer
+    model = AutoModelForCausalLM.from_pretrained(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/models/auto/auto_factory.py", line 372, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4109, in from_pretrained
+    load_info = cls._load_pretrained_model(model, state_dict, checkpoint_files, load_config)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4196, in _load_pretrained_model
+    caching_allocator_warmup(model, expanded_device_map, load_config.hf_quantizer)
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4762, in caching_allocator_warmup
+    _ = torch.empty(byte_count // 2, dtype=torch.float16, device=device, requires_grad=False)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: empty() received an invalid combination of arguments - got (float, requires_grad=bool, device=torch.device, dtype=torch.dtype), but expected one of:
+ * (tuple of ints size, *, tuple of names names, torch.memory_format memory_format = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+ * (tuple of ints size, *, torch.memory_format memory_format = None, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+
+Generating 300 training samples for BlackZero...
+Generated 300 training samples → training_data/blackzero.jsonl
+Generated 300 samples
+
+============================================================
+BlackZero / Engineer0 Brain Training
+Base model: mistralai/Mistral-7B-v0.1
+Epochs: 3
+Output: output/blackzero-qlora
+============================================================
+
+Dataset: 285 train, 15 val samples
+Loading base model: mistralai/Mistral-7B-v0.1
+Traceback (most recent call last):
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 183, in <module>
+    main()
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 170, in main
+    adapter_path = trainer.train()
+                   ^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 176, in train
+    model, tokenizer = self.load_model_and_tokenizer()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 101, in load_model_and_tokenizer
+    model = AutoModelForCausalLM.from_pretrained(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/models/auto/auto_factory.py", line 372, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4109, in from_pretrained
+    load_info = cls._load_pretrained_model(model, state_dict, checkpoint_files, load_config)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4196, in _load_pretrained_model
+    caching_allocator_warmup(model, expanded_device_map, load_config.hf_quantizer)
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4762, in caching_allocator_warmup
+    _ = torch.empty(byte_count // 2, dtype=torch.float16, device=device, requires_grad=False)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: empty() received an invalid combination of arguments - got (float, requires_grad=bool, device=torch.device, dtype=torch.dtype), but expected one of:
+ * (tuple of ints size, *, tuple of names names, torch.memory_format memory_format = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+ * (tuple of ints size, *, torch.memory_format memory_format = None, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+
+[2026-02-19 02:00:15] ❌ Training failed (exit 1). Check log for details.
+[2026-02-19 02:00:15] ❌ Training failed (exit 1). Check log for details.
+[2026-02-20 02:00:05] === Auto-train check ===
+[2026-02-20 02:00:06] On battery power. Skipping.
+[2026-02-21 02:05:26] === Auto-train check ===
+[2026-02-21 02:05:26] On battery power. Skipping.
+[2026-02-21 02:06:03] === Auto-train check ===
+[2026-02-21 02:06:03] On battery power. Skipping.
+[2026-02-22 02:00:00] === Auto-train check ===
+[2026-02-22 02:00:00] Rebuilding engineer0_full.jsonl from cb_core + engineer0 sets...
+Set 1 (CB core):     85 samples
+Set 2 (Engineer0):   42 samples
+Merged total:        127 samples
+Output: /Users/darnieglover/ai/GENESIS/brain_trainer/training_data/engineer0_full.jsonl
+
+To train: cd ~/ai/GENESIS/brain_trainer && python3 train.py --data engineer0_full.jsonl
+[2026-02-22 02:00:00] Auto-approving all training samples...
+Auto-approved 127 samples
+[2026-02-22 02:00:03] === Auto-train check ===
+[2026-02-22 02:00:03] Rebuilding engineer0_full.jsonl from cb_core + engineer0 sets...
+Set 1 (CB core):     85 samples
+Set 2 (Engineer0):   42 samples
+Merged total:        127 samples
+Output: /Users/darnieglover/ai/GENESIS/brain_trainer/training_data/engineer0_full.jsonl
+
+To train: cd ~/ai/GENESIS/brain_trainer && python3 train.py --data engineer0_full.jsonl
+[2026-02-22 02:00:03] Auto-approving all training samples...
+Auto-approved 127 samples
+[2026-02-22 02:00:05] Starting training on engineer0_full.jsonl...
+[2026-02-22 02:00:05] Starting training on engineer0_full.jsonl...
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/datapoints/__init__.py:12: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/transforms/v2/__init__.py:54: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+Generating 300 training samples for BlackZero...
+Generated 300 training samples → training_data/blackzero.jsonl
+Generated 300 samples
+
+============================================================
+BlackZero / Engineer0 Brain Training
+Base model: mistralai/Mistral-7B-v0.1
+Epochs: 3
+Output: output/blackzero-qlora
+============================================================
+
+Generating train split: 0 examples [00:00, ? examples/s]Generating train split: 300 examples [00:00, 36469.04 examples/s]
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/datapoints/__init__.py:12: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/torchvision/transforms/v2/__init__.py:54: UserWarning: The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta. While we do not expect major breaking changes, some APIs may still change according to user feedback. Please submit any feedback you may have in this issue: https://github.com/pytorch/vision/issues/6753, and you can also check out https://github.com/pytorch/vision/issues/7319 to learn more about the APIs that we suspect might involve future changes. You can silence this warning by calling torchvision.disable_beta_transforms_warning().
+  warnings.warn(_BETA_TRANSFORMS_WARNING)
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Dataset: 285 train, 15 val samples
+Loading base model: mistralai/Mistral-7B-v0.1
+Traceback (most recent call last):
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 183, in <module>
+    main()
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 170, in main
+    adapter_path = trainer.train()
+                   ^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 176, in train
+    model, tokenizer = self.load_model_and_tokenizer()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 101, in load_model_and_tokenizer
+    model = AutoModelForCausalLM.from_pretrained(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/models/auto/auto_factory.py", line 372, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4109, in from_pretrained
+    load_info = cls._load_pretrained_model(model, state_dict, checkpoint_files, load_config)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4196, in _load_pretrained_model
+    caching_allocator_warmup(model, expanded_device_map, load_config.hf_quantizer)
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4762, in caching_allocator_warmup
+    _ = torch.empty(byte_count // 2, dtype=torch.float16, device=device, requires_grad=False)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: empty() received an invalid combination of arguments - got (float, requires_grad=bool, device=torch.device, dtype=torch.dtype), but expected one of:
+ * (tuple of ints size, *, tuple of names names, torch.memory_format memory_format = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+ * (tuple of ints size, *, torch.memory_format memory_format = None, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+
+Generating 300 training samples for BlackZero...
+Generated 300 training samples → training_data/blackzero.jsonl
+Generated 300 samples
+
+============================================================
+BlackZero / Engineer0 Brain Training
+Base model: mistralai/Mistral-7B-v0.1
+Epochs: 3
+Output: output/blackzero-qlora
+============================================================
+
+Dataset: 285 train, 15 val samples
+Loading base model: mistralai/Mistral-7B-v0.1
+Traceback (most recent call last):
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 183, in <module>
+    main()
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/train.py", line 170, in main
+    adapter_path = trainer.train()
+                   ^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 176, in train
+    model, tokenizer = self.load_model_and_tokenizer()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/darnieglover/ai/GENESIS/brain_trainer/brain_trainer/trainer.py", line 101, in load_model_and_tokenizer
+    model = AutoModelForCausalLM.from_pretrained(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/models/auto/auto_factory.py", line 372, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4109, in from_pretrained
+    load_info = cls._load_pretrained_model(model, state_dict, checkpoint_files, load_config)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4196, in _load_pretrained_model
+    caching_allocator_warmup(model, expanded_device_map, load_config.hf_quantizer)
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4762, in caching_allocator_warmup
+    _ = torch.empty(byte_count // 2, dtype=torch.float16, device=device, requires_grad=False)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: empty() received an invalid combination of arguments - got (float, requires_grad=bool, device=torch.device, dtype=torch.dtype), but expected one of:
+ * (tuple of ints size, *, tuple of names names, torch.memory_format memory_format = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+ * (tuple of ints size, *, torch.memory_format memory_format = None, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+
+[2026-02-22 02:00:15] ❌ Training failed (exit 1). Check log for details.
+[2026-02-22 02:00:15] ❌ Training failed (exit 1). Check log for details.
