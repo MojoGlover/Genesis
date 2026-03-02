@@ -2,7 +2,7 @@
 
 ollama:
   base_url: "http://localhost:11434"
-  model: "phi3:mini"
+  model: "genesis-zero:latest"
   temperature: 0.7
   max_tokens: 2048
 

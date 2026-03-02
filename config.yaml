@@ -23,9 +23,9 @@ models:
       temperature: 0.7
       top_p: 0.9
       
-    # Fast responses - 14B parameter model  
+    # Fast responses
     fast:
-      name: "phi3:mini"
+      name: "genesis-zero:latest"
       provider: "ollama"
       base_url: "http://localhost:11434"
       max_tokens: 2048

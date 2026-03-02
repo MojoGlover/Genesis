@@ -24,7 +24,7 @@ class SimplifiedRasaAgent:
     
     def __init__(
         self,
-        model: str = "phi3:mini",
+        model: str = "genesis-zero:latest",
         ollama_url: str = "http://localhost:11434/api/generate"
     ):
         self.model = model

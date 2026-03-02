@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings
 class OllamaSettings(BaseModel):
     """Ollama connection settings."""
     base_url: str = "http://localhost:11434"
-    model: str = "phi3:mini"
+    model: str = "genesis-zero:latest"
     temperature: float = 0.7
     max_tokens: int = 2048
 

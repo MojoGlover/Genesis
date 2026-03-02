@@ -15,6 +15,7 @@ from core.monitoring.dashboard_v2 import router as monitor_router
 from core.monitoring.health import router as health_router
 from core.monitoring.websocket import router as ws_router
 from core.monitoring.startup import init_monitoring, shutdown_monitoring
+from core.modules.registry import get_module_registry
 
 
 @asynccontextmanager
@@ -22,8 +23,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan - initialize and cleanup resources."""
     # Startup
     await init_monitoring(app)
+    module_registry = get_module_registry()
+    await module_registry.mount_all(app)
     yield
     # Shutdown
+    await module_registry.shutdown_all()
     await shutdown_monitoring()
 
 

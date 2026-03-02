@@ -26,9 +26,9 @@
   },
 
   "routing": {
-    "local_reasoning_model": "llama3.1:70b",
-    "local_fast_model": "codellama:13b",
-    "local_code_model": "qwen2.5-coder:32b",
+    "local_reasoning_model": "genesis-zero:latest",
+    "local_fast_model": "genesis-zero:latest",
+    "local_code_model": "qwen2.5-coder:3b",
     "providers": ["aider", "claude", "gemini", "codex"]
   },
 

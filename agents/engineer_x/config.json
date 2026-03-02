@@ -25,6 +25,7 @@
   "heartbeat_interval": 10.0,
   "error_threshold": 5,
   "alert_on_failure": true,
+  "model": "engineer-x:latest",
   "autonomy_upgrade_path": {},
   "test_config": {
     "default_timeout": 300,
