@@ -1,0 +1,46 @@
+{
+  "policy_version": "1.0.0",
+  "principles": [
+    "discovery_does_not_imply_trust",
+    "zero_side_effects_on_import",
+    "deterministic_discovery_order",
+    "allowlist_enablement_only",
+    "lazy_imports_required",
+    "pydantic_io_validation_required",
+    "permissions_must_be_declared",
+    "registry_snapshot_on_every_mount"
+  ],
+  "enablement": {
+    "mode": "allowlist",
+    "allowlist_path": "genesis/policies/registry_allowlist.json",
+    "on_unlisted_module": "skip",
+    "on_version_mismatch": "reject",
+    "on_missing_manifest": "reject"
+  },
+  "reproducibility": {
+    "snapshot_enabled": true,
+    "snapshot_path": "data/registry_snapshot.json",
+    "discovery_order": "lexicographic",
+    "flag_on_order_change": true
+  },
+  "security": {
+    "permissions_required": true,
+    "known_permissions": [
+      "read:packages",
+      "write:packages",
+      "read:filesystem",
+      "write:filesystem",
+      "read:network",
+      "write:network",
+      "read:memory",
+      "write:memory",
+      "execute:process"
+    ],
+    "on_unknown_permission": "reject"
+  },
+  "discovery": {
+    "manifest_filename": "module.json",
+    "entry_filename": "module.py",
+    "required_manifest_fields": ["name", "version", "description", "entry", "permissions"]
+  }
+}
