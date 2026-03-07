@@ -1,0 +1,12 @@
+YOUR DOWNLOAD IS IN THIS REPO WINDOW
+
+Download this file from the main Genesis file list:
+DOWNLOAD_THIS_FROM_BROWSER_20260307_010547.zip
+
+If you see buttons like Diff / Logs / Unarchive / Share / Create PR, you are already in the right browser window.
+Scroll the file list and click the ZIP filename directly to download.
+
+If you do not see it, refresh the browser file list and sort by newest files.
+
+If Windows says "File Not Found" for `dir *.zip`, open:
+WINDOWS_ZIP_TROUBLESHOOTING.md

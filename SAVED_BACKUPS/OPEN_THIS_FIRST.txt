@@ -1,0 +1,9 @@
+GENESIS BACKUP READY
+
+If you can only use the browser/file explorer:
+1) Open the Genesis folder.
+2) Open SAVED_BACKUPS.
+3) Download/copy the newest file named:
+   Genesis_FULL_EXPORT_YYYYMMDD_HHMMSS.zip
+
+That ZIP contains this project files (excluding .git internals).

@@ -34,3 +34,9 @@ brain_trainer/logs/
 
 # Git submodule remnants
 tools/blender-mcp/
+
+# Local downloadable backups
+SAVED_BACKUPS/*.zip
+
+# In-browser export archives
+DOWNLOAD_THIS_FROM_BROWSER_*.zip
