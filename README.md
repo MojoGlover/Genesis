@@ -65,3 +65,22 @@ Run the master install script:
 ├── vision_engine/         ← Vision AI (NEW)
 └── tablet_assistant/      ← Tablet overlay AI (NEW)
 ```
+
+## Browser-only backup download (no commands)
+
+If you are viewing this repository in a browser file list, download this file in the top-level `Genesis` folder:
+
+`DOWNLOAD_THIS_FROM_BROWSER_20260307_010547.zip`
+
+If you do not see it, refresh the browser file list and sort by newest files.
+
+If you see buttons like **Diff**, **Logs**, **Unarchive**, **Share**, and **Create PR**, you are already in the correct browser view; scroll the file list and click the ZIP filename directly.
+
+
+## Windows troubleshooting for "dir *.zip" (no files shown)
+
+If Command Prompt shows `File Not Found` when you run `dir *.zip`, open:
+
+`WINDOWS_ZIP_TROUBLESHOOTING.md`
+
+It includes exact commands to check Downloads/OneDrive folders, search your full user profile, and copy the export ZIP to `C:\` or `D:\`.
