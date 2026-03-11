@@ -294,6 +294,8 @@ class Router:
             return text
 
     def _to_text(self, raw: Any) -> str:
+        if raw is None:
+            return ""
         if isinstance(raw, str):
             return raw
         if isinstance(raw, dict):

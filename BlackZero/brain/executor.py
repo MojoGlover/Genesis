@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 
 POLICIES_DIR = Path(__file__).parent.parent / "policies"
 
+# Generic verbs and connectors that appear in prohibition lines but are far too
+# common to reliably signal prohibited content on their own.  Excluded from
+# content-word matching so that "generate a report" doesn't trip the CSAM rule.
+_POLICY_COMMON_WORDS = {
+    "never", "assist", "provide", "create", "generate", "attempt", "pursue",
+    "deceive", "conceal", "modify", "influence", "corrupt", "acquire", "delegate",
+    "recruit", "persist", "cause", "intend", "design", "operate", "execute",
+    "facilitate", "transmit", "store", "prevent", "delay", "enable",
+    "content", "involving", "actions", "against", "systems", "plans",
+    "unauthorized", "authorized", "intended",
+}
+
 
 # ------------------------------------------------------------------
 # Policy Filter
@@ -59,7 +71,11 @@ class PolicyFilter:
             logger.warning(f"Policies directory not found: {self.policies_dir}")
             return
         for policy_file in self.policies_dir.glob("*.md"):
-            content = policy_file.read_text()
+            try:
+                content = policy_file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError) as e:
+                logger.warning(f"Skipping unreadable policy file {policy_file.name}: {e}")
+                continue
             self.rules[policy_file.name] = content
         logger.info(f"PolicyFilter loaded {len(self.rules)} policy file(s).")
 
@@ -94,27 +110,72 @@ class PolicyFilter:
         """
         Basic policy matching. Override with semantic matching as the system matures.
 
-        Currently: extract NEVER/NOT ALLOWED/PROHIBITED lines from policy text
-        and check if any match the action or content keywords.
+        Rules in the policy file can span multiple lines (until a blank line or separator).
+        This method accumulates each full rule block before matching.
+
+        Two-tier matching to balance precision and recall:
+          - Anchor words (>8 chars, not a generic policy verb): a single match suffices.
+            These are domain-specific terms unlikely to appear in normal requests
+            ("exfiltrate", "biological", "trafficking", "casualties", etc.).
+          - Secondary words (5-8 chars, not excluded): require ≥2 co-occurring in the
+            same rule. Common words that bleed into prohibition lines ("content",
+            "involving") are excluded from both tiers.
         """
-        lines = policy_text.splitlines()
         prohibition_keywords = ["never", "not allowed", "prohibited", "must not", "forbidden"]
 
-        for i, line in enumerate(lines):
+        match_words = [
+            w for w in content.lower().split()
+            if len(w) > 4 and w not in _POLICY_COMMON_WORDS
+        ]
+        anchor_words = [w for w in match_words if len(w) > 8]
+        secondary_words = [w for w in match_words if 4 < len(w) <= 8]
+
+        if not match_words:
+            return None
+
+        lines = policy_text.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
             line_lower = line.lower().strip()
+
             if any(kw in line_lower for kw in prohibition_keywords):
-                # Check if action or content terms appear near the prohibition
-                if action.lower() in line_lower or any(
-                    word in line_lower
-                    for word in content.lower().split()
-                    if len(word) > 4
-                ):
+                # Accumulate continuation lines until a blank line or separator
+                rule_lines = [line]
+                j = i + 1
+                while j < len(lines):
+                    next_stripped = lines[j].strip()
+                    if not next_stripped or next_stripped == "---":
+                        break
+                    rule_lines.append(lines[j])
+                    j += 1
+
+                rule_text = " ".join(rule_lines).lower()
+
+                # Anchor: one very-specific term is enough
+                if any(w in rule_text for w in anchor_words):
+                    citation = " ".join(ln.strip() for ln in rule_lines)
                     return {
                         "allowed": False,
-                        "reason": line.strip(),
-                        "cited_rule": f"Line {i+1}: {line.strip()}",
+                        "reason": citation,
+                        "cited_rule": f"Line {i+1}: {citation[:120]}",
                         "cited_file": f"BlackZero/policies/{filename}",
                     }
+
+                # Secondary: need ≥2 co-occurring medium-specificity words
+                sec_matches = sum(1 for w in secondary_words if w in rule_text)
+                if sec_matches >= 2:
+                    citation = " ".join(ln.strip() for ln in rule_lines)
+                    return {
+                        "allowed": False,
+                        "reason": citation,
+                        "cited_rule": f"Line {i+1}: {citation[:120]}",
+                        "cited_file": f"BlackZero/policies/{filename}",
+                    }
+
+                i = j  # skip past the consumed block
+            else:
+                i += 1
 
         return None
 

@@ -122,14 +122,32 @@ class CognitiveLoop:
         if raw_input is None:
             return self._record(cycle_id, t0, "idle", "idle", "no_op", 0.0)
 
-        # 2. Classify
-        routed = self.router.classify_input(raw_input)
+        # 2. Classify — catch router failures so the loop never dies
+        try:
+            routed = self.router.classify_input(raw_input)
+        except Exception as e:
+            logger.error(f"Router classify error in cycle {cycle_id}: {e}")
+            try:
+                self.router.send_error(str(e))
+            except Exception:
+                pass
+            self.state.failure_count += 1
+            return self._record(cycle_id, t0, "unknown", "unknown", "failure", 0.0)
         input_type = routed.get("type", "unknown")
         context = routed.get("context", {})
         reply_channel = routed.get("reply_channel", "default")
 
-        # 3. Plan
-        plan = self.planner.plan(input_type=input_type, context=context)
+        # 3. Plan — catch planner failures
+        try:
+            plan = self.planner.plan(input_type=input_type, context=context)
+        except Exception as e:
+            logger.error(f"Planner error in cycle {cycle_id}: {e}")
+            try:
+                self.router.send_error(str(e))
+            except Exception:
+                pass
+            self.state.failure_count += 1
+            return self._record(cycle_id, t0, input_type, "unknown", "failure", 0.0)
         plan_type = plan.get("action", "unknown")
 
         # 4. Execute — catch errors so the loop never dies on a bad cycle
@@ -137,23 +155,32 @@ class CognitiveLoop:
             result = self.executor.execute(plan=plan, context=context)
         except Exception as e:
             logger.error(f"Executor error in cycle {cycle_id}: {e}")
-            self.router.send_error(str(e))
+            try:
+                self.router.send_error(str(e))
+            except Exception:
+                pass
             self.state.failure_count += 1
             return self._record(cycle_id, t0, input_type, plan_type, "failure", 0.0)
         outcome = result.get("outcome", "failure")
         score = result.get("score", 0.0)
         output = result.get("output", "")
 
-        # 5. Respond
-        self.router.send(output=output, channel=reply_channel)
+        # 5. Respond — catch send failures (don't die over output errors)
+        try:
+            self.router.send(output=output, channel=reply_channel)
+        except Exception as e:
+            logger.error(f"Router send error in cycle {cycle_id}: {e}")
 
         # 6. Learn — feed outcome back to planner
-        self.planner.record_outcome(
-            plan_type=plan_type,
-            input_type=input_type,
-            outcome=outcome,
-            score=score,
-        )
+        try:
+            self.planner.record_outcome(
+                plan_type=plan_type,
+                input_type=input_type,
+                outcome=outcome,
+                score=score,
+            )
+        except Exception as e:
+            logger.error(f"Planner record_outcome error in cycle {cycle_id}: {e}")
 
         # 7. Stats
         if outcome == "success":

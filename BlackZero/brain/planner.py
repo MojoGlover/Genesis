@@ -88,7 +88,10 @@ class Planner:
 
     def __init__(self, weights_path: Optional[Path] = None):
         self.weights_path = weights_path or Path("~/.blackzero/strategy_weights.json").expanduser()
-        self.weights_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.weights_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # Unwritable path — will fail gracefully on save, not on init
         self.weights: dict[str, dict[str, float]] = {}
         self.history: list[StrategyRecord] = []
         self._load_weights()
