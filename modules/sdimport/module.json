@@ -1,0 +1,8 @@
+{
+  "name":        "genesis.sdimport",
+  "version":     "1.0.0",
+  "description": "Stable Diffusion metadata importer — extracts generation params from Civitai/image URLs and builds ComfyUI workflow JSON.",
+  "entry":       "module.py",
+  "permissions": ["read:network", "read:filesystem", "write:filesystem"],
+  "tags":        ["sdimport", "stable-diffusion", "comfyui", "image-gen"]
+}

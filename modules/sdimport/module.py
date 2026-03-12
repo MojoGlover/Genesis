@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 
 from agents.tools.tool_registry import register_tool
-from core.modules.base import ModuleBase
+from modules.base import ModuleBase
 
 from .extractor import extract, build_comfyui_workflow
 from .schemas import ImportRequest, ImportResponse, SaveRequest, SaveResponse

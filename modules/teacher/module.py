@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
-from core.modules.base import ModuleBase
+from modules.base import ModuleBase
 from .schemas import (
     AskRequest,
     AskResponse,

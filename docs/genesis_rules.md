@@ -134,14 +134,16 @@ No experimental notebooks or ad hoc scratch files belong here.
 MODULES RULE
 
 modules/ contains reusable capability modules.
-Allowed: vision/, voice/, coding/, browsing/
+Current modules: teacher/, tax/, sdimport/
 Rules:
 - one capability per module folder
+- every module must have a module.py (class Module subclassing ModuleBase) and module.json
 - no agent identity inside modules
 - no root-level loose module files
 - modules must remain portable
 
 A module is a capability, not an agent.
+See docs/ADDING_A_MODULE.md for the step-by-step guide.
 
 AGENTS RULE
 
@@ -214,6 +216,7 @@ Required files:
 - architecture.md
 - genesis_rules.md
 - blackzero_spec.md
+- ADDING_A_MODULE.md
 
 Rules:
 - docs must not contradict each other

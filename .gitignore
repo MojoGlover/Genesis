@@ -28,8 +28,14 @@ venv/
 .DS_Store
 .aider*
 
+# Dev tool caches
+.pytest_cache/
+.gradio/
+.history
+.spawn_logs/
+
 # Logs
-brain_trainer/logs/
+brain_trainer/     # recreated by LaunchAgent on every boot — not tracked
 *.log
 
 # Git submodule remnants

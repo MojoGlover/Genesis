@@ -37,13 +37,28 @@
 import os
 import sys
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 REQUIRED_ROOT_ENTRIES = {
     "BlackZero", "modules", "agents", "builders", "evals",
     "datasets", "scripts", "configs", "docs", "docker",
     "pending", "README.md", ".git", ".gitignore"
 }
+
+# Gitignored runtime artifacts — present locally but never committed.
+# Doctor tolerates these so it does not fight the development environment.
+TOLERATED_ROOT_ENTRIES = {
+    ".env", ".DS_Store", "__pycache__", ".pytest_cache",
+    ".gradio", ".history", ".spawn_logs",
+    "brain_trainer",  # recreated by macOS LaunchAgent on every boot — gitignored
+}
+
+# Prefixes of gitignored runtime files (startswith check).
+TOLERATED_ROOT_PREFIXES = (
+    ".aider", ".claude", ".autonomous_state", ".engineer0_memory",
+    ".location", ".session_heartbeat", ".session_state", ".spawn",
+    ".engSS",
+)
 
 REQUIRED_BLACKZERO_FOLDERS = {
     "brain", "identity", "memory", "storage", "rag",
@@ -57,10 +72,11 @@ violations = []
 
 def check_root_structure():
     entries = set(os.listdir(REPO_ROOT))
-    unexpected = entries - REQUIRED_ROOT_ENTRIES
+    unexpected = entries - REQUIRED_ROOT_ENTRIES - TOLERATED_ROOT_ENTRIES
     for item in sorted(unexpected):
-        if not item.startswith(".DS_Store") and not item.startswith("__pycache__"):
-            violations.append(f"ROOT: unexpected entry '{item}' (should be in pending/ or removed)")
+        if any(item.startswith(p) for p in TOLERATED_ROOT_PREFIXES):
+            continue
+        violations.append(f"ROOT: unexpected entry '{item}' (should be in pending/ or removed)")
 
 
 def check_blackzero_presence():
@@ -81,7 +97,7 @@ def check_brain_files():
         return
     contents = set(os.listdir(brain_path))
     missing = REQUIRED_BRAIN_FILES - contents
-    extra = contents - REQUIRED_BRAIN_FILES
+    extra = contents - REQUIRED_BRAIN_FILES - {"__pycache__"}
     for f in sorted(missing):
         violations.append(f"BRAIN: missing required file '{f}'")
     for f in sorted(extra):

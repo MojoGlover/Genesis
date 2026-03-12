@@ -1,203 +1,284 @@
-GENESIS ORGANIZATION RULES (OFFICIAL LOCKED VERSION) v1.1
-PRIME RULE
-If it does not clearly belong in the official structure, it goes into pending/.
-This one rule governs all decisions in this repository. Every rule below is a specific application of it. When in doubt, stop reading and use pending/.
+BLACKZERO TEMPLATE SPECIFICATION
+Official Reference Document v1.0
+
+
 PURPOSE
-Genesis is a clean AI foundry repository.
-It exists to hold:
-* the canonical AI template (BlackZero)
-* reusable modules
-* reusable builders
-* reusable evaluations
-* reusable documentation
-It does NOT exist to hold random experiments, old apps, mixed agent code, or drifting architecture.
-Everything in Genesis must either:
-1. belong to the approved structure, or
-2. go into pending/
-1. ROOT STRUCTURE RULE
-The Genesis root may contain ONLY these entries:
-BlackZero/ modules/ agents/ builders/ evals/ datasets/ scripts/ configs/ docs/ docker/ pending/ README.md .git .gitignore
-No other root-level files or folders are allowed. Anything that does not belong goes into pending/.
-1. PENDING RULE
-pending/ is the quarantine folder.
-* Nothing is deleted.
-* Anything legacy, experimental, uncertain, duplicate, or unclassified goes here.
-* Files may only leave pending/ after deliberate review.
-* Never overwrite files when moving into pending/. If a name conflict exists, preserve both copies by renaming safely.
-pending/ preserves history and prevents accidental loss.
-1. BLACKZERO RULE
-BlackZero is the canonical AI template — the genetics of every agent. It must remain stable, compact, inspectable, and reusable.
-BlackZero may contain ONLY:
-brain/ identity/ memory/ storage/ rag/ tools/ models/ policies/ diagnostics/ tests/
-No additional top-level BlackZero folders may be added without revising this rules file.
-1. BRAIN RULE
-BlackZero/brain is locked.
-It must contain EXACTLY these four files, each with a fixed responsibility:
-loop.py — the main cognitive cycle; runs the agent's continuous process planner.py — decides what to do next given current state and goals executor.py — carries out the action decided by the planner router.py — directs input and output to the correct internal destination
-No additional files may be added. No files may be renamed. No files may be nested under brain/. Logic must not migrate between these files casually — if planner logic ends up in executor.py, that is a violation.
-The brain is the hardened cognitive core. All complexity must be added OUTSIDE the brain.
-1. IDENTITY RULE
-BlackZero/identity must contain:
-mission.md — the AI's fixed purpose and operating mandate personality.yaml — tone, behavioral traits, and communication style
-These files define the AI's core identity and must not be casually rewritten, filled with generated junk, or used as temporary scratch space.
-1. MEMORY RULE
-BlackZero/memory holds memory management logic only.
-Allowed: memory manager, memory schemas, memory interfaces.
-Not allowed: experiment dumps, random transcripts, loose notes, training exports.
-Runtime data belongs in storage/ or datasets/, not inside memory source files.
-1. STORAGE RULE
-BlackZero/storage contains storage logic only.
-Allowed: sqlite store logic, vector store logic, storage adapters.
-Not allowed: loose .db files, backup dumps, exported artifacts scattered around the repo.
-Any database or generated runtime data must live in a controlled subfolder or be gitignored.
-1. RAG RULE
-BlackZero/rag contains retrieval logic only.
-Allowed: retrievers, embedding routers, indexing helpers.
-Not allowed: datasets, embedded documents, notes, random evaluation files.
-Data goes into datasets/ or evals/, not here.
-1. TOOLS RULE
-BlackZero/tools contains reusable tool infrastructure.
-Allowed: tool registry, base tool interface, tool execution helpers.
-Not allowed: one-off scripts, random experiments, project-specific hacks.
-Any temporary or experimental tool must go to pending/ until promoted.
-1. MODELS RULE
-BlackZero/models contains model routing and provider integration.
-Allowed: model router, provider adapter definitions.
-Not allowed: training data, transcripts, prompt experiments, mixed app logic.
-Provider-specific code must stay compartmentalized.
-1. POLICIES RULE
-BlackZero/policies contains explicit policy files only.
-Allowed: safety rules, permissions, governance constraints.
-Policies must remain readable and separate from implementation logic. Do not bury policy logic inside random source files if it belongs here.
-1. DIAGNOSTICS RULE
-BlackZero/diagnostics contains repo and system health logic.
-doctor.py is mandatory and must enforce:
-1. root structure validity
-2. BlackZero presence
-3. brain exact-file rule (four files, correct names)
-4. required folder existence
-5. pending/ existence
-healthcheck.py may contain future runtime checks.
-Diagnostics must never be removed.
-1. TESTS RULE
-BlackZero/tests contains tests only.
-Required at minimum:
-* brain\_tests.py — verifies brain contains exactly four correctly named files
-* structure\_tests.py — verifies required folders exist and doctor passes
-No experimental notebooks or ad hoc scratch files belong here.
-1. MODULES RULE
-modules/ contains reusable capability modules.
-Allowed: vision/, voice/, coding/, browsing/
-Rules:
-* one capability per module folder
-* no agent identity inside modules
-* no root-level loose module files
-* modules must remain portable
-A module is a capability, not an agent.
-1. AGENTS RULE
-agents/ contains actual AI instances built from BlackZero.
-Examples: engineer0/, madjanet/, cranston/, accountant/
-Rules:
-* agents inherit from BlackZero structure
-* agents must not redefine the entire core architecture
-* agent-specific code stays inside the agent folder
-* no agent may modify BlackZero directly
-BlackZero is the template. agents/ are derived instances.
-1. BUILDERS RULE
-builders/ contains code generation and scaffolding tools.
-Allowed: agent\_builder.py, template\_loader.py
-Not allowed: runtime AI behavior, random experiments, data dumps.
-Builders generate structure. They are not the structure.
-1. EVALS RULE
-evals/ contains evaluation logic and suites.
-Allowed: reasoning tests, bias tests, tool tests.
-Rules:
-* evaluation data must be organized by test type
-* no random logs or outputs at root
-* generated eval outputs go in a dedicated output subfolder or are gitignored
-evals/ measures the AI. It is not part of the brain.
-1. DATASETS RULE
-datasets/ contains structured data only.
-Allowed: curated datasets, training examples, retrieval corpora, benchmark input sets.
-Rules:
-* datasets must be named clearly
-* no mystery files or one-off dumps without description
-* every dataset must include a short README or metadata note
-Data must not be scattered throughout the repo.
-1. SCRIPTS RULE
-scripts/ contains runnable utility scripts.
-Allowed: launch\_agent.py, run\_evals.py, system\_report.py
-Rules:
-* scripts are entrypoints or utilities only
-* do not put library logic here if it belongs elsewhere
-* do not duplicate functionality already in BlackZero or modules
-scripts/ is for execution helpers, not architecture.
-1. CONFIGS RULE
-configs/ contains configuration files only.
-Allowed: model\_config.yaml, system\_config.yaml
-Rules:
-* configs must remain human-readable
-* no secrets committed to git
-* no random backups or copies
-* config names must be explicit
-Environment secrets belong in .env files ignored by git.
-1. DOCS RULE
-docs/ contains all human-readable project guidance.
-Required files:
-* architecture.md
-* genesis_rules.md
-* blackzero_spec.md
-Rules:
-* docs must not contradict each other
-* new rules must be added by updating docs, not hidden in chat history
-* docs are the source of truth, not memory
-If the project changes, docs must be updated immediately.
-1. DOCKER RULE
-docker/ contains containerization support only.
-Allowed: Dockerfile, supporting docker configs.
-Not allowed: random runtime data, duplicate app code, hidden project structure.
-docker/ packages the project. It does not replace it.
-1. README RULE
-README.md must clearly explain:
-* what Genesis is
-* what BlackZero is
-* what pending/ is
-* the current top-level structure
-* how to run the doctor
-README must stay simple and accurate.
-1. PLACEHOLDER RULE
-During skeleton phase, all files except doctor.py may remain empty. Placeholder files keep the structure visible.
-Do not invent business logic early. Do not fill random files just to fill them.
-The skeleton comes first. Real logic comes later.
-1. DISCIPLINE RULE
-Before adding anything new, ask:
-1. Does this already belong in an existing folder?
-2. Is this a real subsystem or just an experiment?
-3. Is there already a canonical version of this elsewhere in the repo?
-4. Should it go to pending/ first?
-If uncertain on any count, put it in pending/.
-One canonical place for each system. No duplicate brains, doctors, routers, or registries. No junk accumulation — .DS\_Store, pycache, loose .pyc files, random zips, abandoned logs, and unnamed exports must be gitignored or quarantined.
-1. HYGIENE RULE
-Every file and folder name must explain its function at a glance.
-Good: memory\_manager.py, sqlite\_store.py, model\_router.py Bad: temp.py, test2.py, stuff.py, newfile.py
-When recovering old work from pending/:
-1. inspect it
-2. decide its category
-3. move only the useful part into the correct folder
-4. leave the rest in pending/
-Promote carefully. Do not resurrect chaos.
-1. CHANGE RULE
-Any structural change must update:
-* docs/genesis\_rules.md
-* README.md
-* doctor.py
-If the rules change, the documentation and the doctor must change too. Otherwise structure and enforcement drift apart.
-1. SUCCESS RULE
-The repository is considered organized only when:
-* root matches the approved structure
-* pending/ contains all quarantined legacy material
-* BlackZero exists and matches the locked layout
-* brain contains exactly four correctly named files with correct responsibilities
-* doctor.py passes
-* all stray files are removed or quarantined
-That is the definition of "organized."
+
+This document describes what BlackZero is, what it contains, and how to derive
+an agent from it. For organizational rules see genesis_rules.md. For the overall
+system architecture see architecture.md.
+
+
+WHAT BLACKZERO IS
+
+BlackZero is the canonical AI template. It is not a running agent.
+It defines the cognitive architecture, subsystem contracts, and safety policies
+that every derived agent must implement.
+
+All agents in agents/ must be derived from BlackZero. No agent may redefine
+the core architecture independently.
+
+
+BLACKZERO STRUCTURE
+
+BlackZero/
+    brain/           — hardened cognitive core (locked to 4 files)
+    identity/        — mission and personality template
+    memory/          — memory manager interface
+    storage/         — persistence adapters
+    rag/             — retrieval-augmented generation
+    tools/           — tool infrastructure
+    models/          — model routing and provider adapters
+    policies/        — safety rules and governance
+    diagnostics/     — structural and runtime health checks
+    tests/           — template test suites
+
+
+THE BRAIN (LOCKED)
+
+The brain is the cognitive core. It is locked to exactly four files.
+No file may be added, renamed, or removed. Logic must not migrate between files.
+
+    loop.py      — runs the main cognitive cycle
+                   orchestrates: classify → plan → execute → respond → learn
+                   owns cycle_id, outcome tracking, and error resilience
+
+    planner.py   — decides what to do next
+                   selects from 9 named strategies using online weight learning
+                   weights persist to ~/.blackzero/strategy_weights.json
+                   never dies on a bad plan — falls back to generate
+
+    executor.py  — carries out the planned action
+                   enforces policy (no phantom policy, no source-independence blocks)
+                   cites the specific rule from policies/ when blocking
+
+    router.py    — directs input and output
+                   classifies input type (question, instruction, code_request, etc.)
+                   strips external AI identity signals from input
+                   routes output to the correct channel (user, api, tool, system)
+
+The brain does not import from memory/, storage/, rag/, tools/, or models/.
+Those subsystems are wired in at the agent level, not the brain level.
+
+
+IDENTITY SUBSYSTEM
+
+BlackZero/identity defines the template for an agent's identity.
+Agents fill in these files with real values — they must not be left blank.
+
+    mission.md       — the agent's fixed purpose and operating mandate
+                       defines what the agent is for and what it must never do
+
+    personality.yaml — tone, behavioral traits, and communication style
+                       defines how the agent communicates with users
+
+
+MEMORY SUBSYSTEM
+
+BlackZero/memory defines the memory contract.
+
+    memory_schema.py  — MemoryRecord dataclass
+                        fields: id, content, source, tags, metadata, embedding, ttl_seconds, created_at
+                        methods: is_expired(), to_dict(), from_dict()
+                        MemorySource enum: user, tool, inference, external
+
+    memory_manager.py — MemoryManager ABC
+                        abstract: add_memory(content, metadata) -> str
+                        abstract: get_memory(id) -> MemoryRecord | None
+                        abstract: search_memory(query, top_k) -> list[MemoryRecord]
+                        abstract: delete_memory(id) -> bool
+                        abstract: expire_old_memories() -> int
+                        optional: list_all() -> list[MemoryRecord]
+
+Agents subclass MemoryManager and implement all abstract methods.
+The implementation delegates persistence to SQLiteStore or VectorStore.
+
+
+STORAGE SUBSYSTEM
+
+BlackZero/storage defines persistence contracts.
+
+    sqlite_store.py  — SQLiteStore ABC
+                       abstract: connect(db_path) -> None
+                       abstract: execute(query, params) -> list[dict]
+                       abstract: run(statement, params) -> None
+                       abstract: insert(table, data) -> str
+                       abstract: close() -> None
+                       concrete: table_exists(table) -> bool
+                       Database files (.db) must be gitignored.
+
+    vector_store.py  — VectorStore ABC
+                       abstract: upsert(id, vector, metadata) -> None
+                       abstract: search(query_vector, top_k) -> list[dict]
+                       abstract: delete(id) -> bool
+                       abstract: count() -> int
+                       optional: clear() -> None
+                       Backends: Qdrant, Chroma, FAISS, or in-memory.
+
+
+RAG SUBSYSTEM
+
+BlackZero/rag defines retrieval-augmented generation contracts.
+
+    embedding_router.py — EmbeddingRouter ABC
+                          abstract: embed(text) -> list[float]
+                          abstract: embed_batch(texts) -> list[list[float]]
+                          abstract: dimensions (property) -> int
+                          Providers: OpenAI, Ollama, local SBERT, etc.
+
+    indexer.py          — Indexer ABC
+                          abstract: index_document(doc_id, content, metadata) -> list[str]
+                          abstract: remove_document(doc_id) -> bool
+                          optional: index_dataset(path) -> int
+
+    retriever.py        — Retriever ABC + RetrievedChunk
+                          abstract: retrieve(query, top_k) -> list[RetrievedChunk]
+                          concrete: retrieve_as_text(query, top_k) -> str
+                          RetrievedChunk: id, content, score, metadata
+
+
+TOOLS SUBSYSTEM
+
+BlackZero/tools defines the tool infrastructure.
+
+    base_tool.py     — BaseTool ABC + ToolError
+                       abstract: name (property) -> str
+                       abstract: description (property) -> str
+                       abstract: run(input: dict) -> dict
+                       concrete: validate_input(input, required_keys) -> None
+                       All tools must return {"ok": True, ...} or raise ToolError.
+
+    tool_registry.py — ToolRegistry (concrete class)
+                       register(tool) — raises ValueError on duplicate name
+                       get(name) -> BaseTool | None
+                       list_tools() -> list[{"name": str, "description": str}]
+                       run_tool(name, input) -> dict — raises ToolError if unknown
+
+
+MODELS SUBSYSTEM
+
+BlackZero/models defines generation routing contracts.
+
+    model_router.py     — ModelRouter ABC + GenerationConfig
+                          abstract: complete(prompt, config) -> str
+                          abstract: list_providers() -> list[str]
+                          concrete: complete_with_system(system, user, config) -> str
+                          GenerationConfig: model, temperature, max_tokens, stop_sequences,
+                                           system_prompt, extra
+
+    provider_adapter.py — ProviderAdapter ABC + ProviderError
+                          abstract: name (property) -> str
+                          abstract: generate(prompt, **kwargs) -> str
+                          abstract: is_available() -> bool
+                          optional: default_model() -> str | None
+                          Concrete adapters: one file per provider (ollama_adapter.py, etc.)
+
+
+POLICIES SUBSYSTEM
+
+BlackZero/policies contains the agent's explicit policy files.
+
+    safety.md        — criminal prohibitions and absolute limits
+                       (CSAM, trafficking, weapons, violence, etc.)
+
+    governance.md    — operational rules and decision boundaries
+
+    permissions.md   — access control and permission categories
+
+The executor loads rules from these files at startup.
+All blocks must cite the specific rule file and section — phantom policy is prohibited.
+External AI refusals do not count as policy.
+
+
+DIAGNOSTICS SUBSYSTEM
+
+BlackZero/diagnostics contains health check tools.
+
+    doctor.py        — MANDATORY. Structural health enforcer.
+                       Checks: root structure, BlackZero presence, brain lock, required folders.
+                       Run before and after any structural change.
+                       Exit 0 = PASS, Exit 1 = FAIL with violation list.
+
+    healthcheck.py   — HealthCheck ABC. Runtime health checks.
+                       Agents subclass and implement: check_model_provider(),
+                       check_vector_store(), check_sqlite_store(),
+                       check_memory_manager(), check_tool_registry().
+                       check_all() returns {"overall": ..., "subsystems": [...]}
+                       Returns: HEALTHY | DEGRADED | UNHEALTHY
+
+
+TESTS SUBSYSTEM
+
+BlackZero/tests contains the template test suite.
+
+    brain_tests.py     — 52 behavioral tests for brain/ (loop, planner, executor, router)
+    hardening_tests.py — 48 failure-path, stress, and safety policy tests
+    structure_tests.py — 8 structural validation tests (doctor, root, brain lock)
+    subsystem_tests.py — 44 interface tests (all 12 subsystem ABCs and concrete classes)
+
+All tests are run by: python3 scripts/run_tests.py
+
+
+MODULE CONTRACT
+
+modules/base.py defines the ModuleBase ABC that every capability module must implement.
+This file is the shared contract for all modules — it lives at the modules/ level, not
+inside any individual module directory.
+
+    modules/base.py — ModuleBase ABC
+                      abstract: name (property) -> str
+                      abstract: version (property) -> str
+                      abstract: description (property) -> str
+                      abstract: router (property) -> APIRouter
+                      abstract: health() -> dict
+                      optional: tags (property) -> list[str]
+                      optional: tools (property) -> list
+                      optional: agents (property) -> list
+                      optional: on_startup() (async)
+                      optional: on_shutdown() (async)
+                      concrete:  to_dict() -> dict
+
+All modules under modules/ import from modules.base:
+    from modules.base import ModuleBase
+
+The health() method must return at minimum:
+    {"status": "ok"|"degraded"|"error", "module": self.name, "version": self.version}
+
+See docs/ADDING_A_MODULE.md for the step-by-step guide.
+
+
+HOW TO DERIVE AN AGENT FROM BLACKZERO
+
+1. Create agents/<your_agent>/
+   Mirror the BlackZero structure.
+
+2. Populate identity/
+   Write mission.md and personality.yaml with real values.
+   Do not leave them as template stubs.
+
+3. Implement the subsystem ABCs
+   Subclass MemoryManager, SQLiteStore, VectorStore, EmbeddingRouter,
+   Indexer, Retriever, ModelRouter, ProviderAdapter, HealthCheck.
+   Implement only what the agent needs — unused subsystems can remain abstract.
+
+4. Wire in modules
+   Import capabilities from modules/ (teacher, tax, sdimport, etc.).
+   Do not copy module code into the agent directory.
+
+5. Add agent-specific logic inside the agent folder.
+   Do not modify BlackZero.
+
+6. Run the doctor to verify structure.
+   python3 BlackZero/diagnostics/doctor.py
+
+7. Run the tests.
+   python3 scripts/run_tests.py
+
+
+WHAT MUST NEVER HAPPEN
+
+- Do not add files to brain/. It is locked to 4 files.
+- Do not modify BlackZero to fit a specific agent. Modify the agent instead.
+- Do not put runtime data (.db files, logs, embeddings) inside BlackZero.
+- Do not commit .env files or database files.
+- Do not implement policy blocks without citing a rule from policies/.

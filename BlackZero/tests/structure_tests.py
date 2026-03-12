@@ -28,7 +28,7 @@ import os
 import sys
 import subprocess
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 REQUIRED_ROOT_FOLDERS = [
     "BlackZero", "modules", "agents", "builders", "evals",
@@ -40,7 +40,7 @@ REQUIRED_BLACKZERO_FOLDERS = [
     "tools", "models", "policies", "diagnostics", "tests"
 ]
 
-REQUIRED_DOCS = ["genesis_rules.md", "architecture.md", "blackzero_spec.md"]
+REQUIRED_DOCS = ["genesis_rules.md", "architecture.md", "blackzero_spec.md", "ADDING_A_MODULE.md"]
 
 
 def test_required_root_folders_exist():
@@ -69,6 +69,45 @@ def test_docs_required_files_exist():
         assert os.path.isfile(path), f"Missing required doc: docs/{doc}"
 
 
+def test_no_unexpected_root_entries():
+    """Root must contain ONLY the approved entries (plus tolerated gitignored files)."""
+    allowed = {
+        "BlackZero", "modules", "agents", "builders", "evals",
+        "datasets", "scripts", "configs", "docs", "docker",
+        "pending", "README.md", ".git", ".gitignore",
+    }
+    tolerated_prefixes = (
+        ".aider", ".claude", ".autonomous_state", ".engineer0_memory",
+        ".location", ".session_heartbeat", ".session_state", ".spawn", ".engSS",
+    )
+    tolerated_exact = {
+        ".env", "__pycache__", ".DS_Store", ".pytest_cache", ".gradio", ".history",
+        "brain_trainer",  # recreated by macOS LaunchAgent on every boot — gitignored
+    }
+    entries = set(os.listdir(REPO_ROOT))
+    unexpected = entries - allowed - tolerated_exact
+    stray = [
+        item for item in sorted(unexpected)
+        if not any(item.startswith(p) for p in tolerated_prefixes)
+    ]
+    assert stray == [], f"Unexpected root entries found (move to pending/): {stray}"
+
+
+def test_brain_files_locked():
+    """brain/ must contain EXACTLY the 4 required files — no more, no less."""
+    brain_path = os.path.join(REPO_ROOT, "BlackZero", "brain")
+    assert os.path.isdir(brain_path), "brain/ directory does not exist"
+    contents = {
+        f for f in os.listdir(brain_path)
+        if not f.startswith("__pycache__") and not f.startswith(".")
+    }
+    required = {"loop.py", "planner.py", "executor.py", "router.py"}
+    missing = required - contents
+    extra = contents - required
+    assert not missing, f"brain/ missing required files: {missing}"
+    assert not extra, f"brain/ has extra files (locked to 4): {extra}"
+
+
 def test_doctor_passes():
     doctor_path = os.path.join(REPO_ROOT, "BlackZero", "diagnostics", "doctor.py")
     result = subprocess.run([sys.executable, doctor_path], capture_output=True, text=True)
@@ -83,6 +122,8 @@ if __name__ == "__main__":
         test_blackzero_exists,
         test_blackzero_subfolders_exist,
         test_docs_required_files_exist,
+        test_no_unexpected_root_entries,
+        test_brain_files_locked,
         test_doctor_passes,
     ]:
         try:

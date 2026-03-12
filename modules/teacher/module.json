@@ -1,0 +1,8 @@
+{
+  "name":        "genesis.teacher",
+  "version":     "1.0.0",
+  "description": "General AI Tutor — ingests trusted web knowledge into a RAG store and answers questions with citations.",
+  "entry":       "module.py",
+  "permissions": ["read:network", "write:memory", "read:memory"],
+  "tags":        ["teacher", "rag", "learning", "tutor"]
+}

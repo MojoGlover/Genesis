@@ -30,7 +30,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from core.modules.base import ModuleBase
+from modules.base import ModuleBase
 
 # Engine lives in the engine/ sub-package
 from modules.tax.engine.calculator import TaxCalculator

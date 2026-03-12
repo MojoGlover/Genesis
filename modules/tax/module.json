@@ -1,0 +1,8 @@
+{
+  "name":        "genesis.tax",
+  "version":     "1.0.0",
+  "description": "US federal tax calculator for 2024, 2025, and projected 2026 — stateless HTTP, no auth required.",
+  "entry":       "module.py",
+  "permissions": ["read:packages"],
+  "tags":        ["tax", "finance", "calculator", "federal"]
+}
