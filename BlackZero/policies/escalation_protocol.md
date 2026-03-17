@@ -1,5 +1,5 @@
 ESCALATION PROTOCOL
-BlackZero — v1.0
+{AGENT_NAME} — v1.0
 
 This file defines precisely when, how, and in what format agents escalate to The Operator.
 Escalation is not a failure state. It is the correct behavior when an agent reaches
