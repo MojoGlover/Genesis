@@ -1,0 +1,17 @@
+{
+  "job_id": "900e7c55-8447-486f-9c0d-c16d8b73feec",
+  "status": "pending",
+  "agent_name": null,
+  "agent_dir": "/tmp/fake_agent",
+  "started_at": "2026-03-20T04:30:29.180100+00:00",
+  "completed_at": null,
+  "errors": [],
+  "log": [
+    "[04:30:29] Running test suites...",
+    "[04:30:29] Tests complete: gate=genesis_only, all_passed=True",
+    "[04:30:29]   structure: PASS (5p/0f/0s)",
+    "[04:30:29]   brain: PASS (5p/0f/0s)",
+    "[04:30:29]   subsystem: PASS (5p/0f/0s)"
+  ],
+  "gate_level": "genesis_only"
+}
