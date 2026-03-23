@@ -27,9 +27,19 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+MANIFEST = {
+    "name": "plugops_bridge",
+    "description": "PlugOps WebSocket bridge — agent registration and inter-agent messaging",
+    "requires_credentials": [],
+    "requires_config": ["PLUGOPS_URL"],
+    "provides": ["sinks.plugops"],
+    "capabilities": [],
+}
 
 try:
     import websocket  # type: ignore
@@ -54,6 +64,8 @@ class PlugOpsClient:
         reconnect_max_seconds: int = 60,
         on_task: Callable[[dict], None] | None = None,
         on_message: Callable[[dict], None] | None = None,
+        credential_store=None,
+        reload_fn: Callable[[str], dict] | None = None,
     ) -> None:
         self._url               = url
         self._agent_name        = agent_name
@@ -62,6 +74,8 @@ class PlugOpsClient:
         self._reconnect_max     = reconnect_max_seconds
         self._on_task           = on_task
         self._on_message        = on_message
+        self._credential_store  = credential_store
+        self._reload_fn         = reload_fn
         self._ws: Any           = None
         self._connected         = False
         self._should_run        = False
@@ -89,6 +103,10 @@ class PlugOpsClient:
                 self._ws.close()
             except Exception:
                 pass
+
+    def set_reload_fn(self, fn: Callable[[str], dict]) -> None:
+        """Wire in the module reload callable after boot."""
+        self._reload_fn = fn
 
     @property
     def is_connected(self) -> bool:
@@ -187,6 +205,18 @@ class PlugOpsClient:
             "ts":           time.time(),
         }))
 
+        # Send module manifest so Cerberus knows what needs activation
+        try:
+            from modules.module_manifest import registry
+            ws.send(json.dumps({
+                "type":    "agent_manifest",
+                "agent":   self._agent_name,
+                "modules": registry.get_all(),
+                "ts":      time.time(),
+            }))
+        except Exception:
+            pass
+
     def _on_ws_message(self, ws, raw: str) -> None:
         try:
             msg = json.loads(raw)
@@ -211,12 +241,64 @@ class PlugOpsClient:
         elif msg_type == "ping":
             self.send({"type": "pong", "agent": self._agent_name, "ts": time.time()})
 
+        elif msg_type == "register_ack":
+            cerberus_key = msg.get("cerberus_key", "")
+            if cerberus_key and self._credential_store:
+                self._credential_store.store_cerberus_key(
+                    bytes.fromhex(cerberus_key)
+                )
+                logger.info("PlugOps: Cerberus key stored")
+
+        elif msg_type == "activate_module":
+            self._handle_activation(msg)
+
+        elif msg_type == "revoke_module":
+            module_name = msg.get("module")
+            if module_name and self._credential_store:
+                self._credential_store.revoke(module_name)
+                logger.warning(f"PlugOps: credentials revoked for {module_name}")
+
         else:
             if self._on_message:
                 try:
                     self._on_message(msg)
                 except Exception as e:
                     logger.error(f"PlugOps message handler error: {e}")
+
+    def _handle_activation(self, msg: dict) -> None:
+        """
+        Verify credential signature, inject env vars, and hot-reload the module.
+
+        Called when Cerberus sends an activate_module message.
+        """
+        module_name = msg.get("module")
+        if not module_name:
+            return
+
+        # Store credentials (verifies HMAC signature)
+        stored = self._credential_store.store(module_name, msg) if self._credential_store else True
+        if not stored:
+            logger.warning(f"PlugOps: activation rejected for {module_name} — signature invalid")
+            return
+
+        # Inject credentials into environment so module.setup() picks them up
+        for key, value in msg.get("credentials", {}).items():
+            os.environ[key] = value
+
+        # Reload the module via the wired reload function
+        if self._reload_fn:
+            try:
+                new_slots = self._reload_fn(module_name)
+                logger.info(f"PlugOps: {module_name} activated → slots={list(new_slots.keys())}")
+                self.send({
+                    "type":   "activation_confirmed",
+                    "agent":  self._agent_name,
+                    "module": module_name,
+                    "slots":  list(new_slots.keys()),
+                    "ts":     time.time(),
+                })
+            except Exception as e:
+                logger.error(f"PlugOps: activation of {module_name} failed: {e}")
 
     def _on_error(self, ws, error) -> None:
         logger.warning(f"PlugOps WebSocket error: {error}")
@@ -231,6 +313,9 @@ class PlugOpsClient:
 
 def setup(config: dict) -> dict:
     """Module entry point. Called by the loader."""
+    from modules.module_manifest import registry
+    registry.register("plugops_bridge", MANIFEST, status="active")
+
     identity   = config.get("identity", {})
     mod_config = config.get("modules", {}).get("plugops_bridge", {})
 
@@ -256,12 +341,25 @@ def setup(config: dict) -> dict:
     # Capabilities come from config if defined, otherwise empty (agent fills in at stamp)
     capabilities = mod_config.get("capabilities", [])
 
+    # Resolve data directory for credential storage
+    data_dir_raw = os.environ.get("DATA_DIR") or config.get("data_dir", "~/.agent")
+    data_dir = Path(data_dir_raw).expanduser()
+
+    try:
+        from security.credentials import CredentialStore
+        credential_store = CredentialStore(data_dir)
+    except Exception as exc:
+        logger.warning(f"plugops_bridge: could not initialise CredentialStore: {exc}")
+        credential_store = None
+
     client = PlugOpsClient(
         url=url,
         agent_name=agent_name,
         capabilities=capabilities,
         heartbeat_seconds=heartbeat,
         reconnect_max_seconds=reconnect,
+        credential_store=credential_store,
+        reload_fn=None,  # wired after boot by loader
     )
     client.start()
 

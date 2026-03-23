@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 """
-Stamp a new agent from the BlackZero template.
-
-Creates a COMPLETE, self-contained agent scaffold — brain, loader, tools,
-models, policies, identity, conversation, memory, rag, storage, diagnostics,
-voice, tests, and modules directory.
-
-The resulting agent has ZERO runtime imports from GENESIS or BlackZero.
-This is a hard rule (see Botico governance: brain_ownership.md).
+stamp_agent.py — Stamp a new agent from the BlackZero template.
 
 Usage:
-    python scripts/stamp_agent.py --name Cerberus --out ~/ai/Cerberus
-    python scripts/stamp_agent.py --name Teacher  --out ~/ai/Teacher --overwrite
+    python stamp_agent.py --name Engineer0 --out /path/to/Engineer0
+    python stamp_agent.py --name Cerberus --alias Guardian --role "Security Sentinel" --out /path/to/Cerberus
 
-After stamping:
-    1. Write identity/mission.md — the agent's fixed purpose
-    2. Write identity/personality.yaml — tone, traits, boundaries
-    3. Edit policies/permissions.md — add role-specific Section 5
-    4. Create modules/ subdirectories with concrete providers
-    5. Write config.yaml with agent-specific settings
-    6. Run: python -m pytest tests/structure_tests.py
+Options:
+    --name        Agent designation (required), e.g. "Engineer0"
+    --out         Output directory (required)
+    --alias       Short name / display name (default: same as --name)
+    --role        One-line role description (default: "Agent")
+    --pronouns    Pronouns (default: "they/them")
+    --data-dir    Data directory override (default: ~/.{slug})
+    --no-rag      Skip rag/ directory
+    --no-docker   Skip Dockerfile and docker-compose.yml
+    --no-tests    Skip tests/ directory
+    --force       Overwrite an existing non-empty output directory
+    --capabilities  Comma-separated capabilities for PlugOps registration
+                    e.g. "code,debug,deploy"
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -32,482 +32,507 @@ from pathlib import Path
 
 GENESIS_DIR = Path(__file__).resolve().parent.parent
 BLACKZERO_DIR = GENESIS_DIR / "BlackZero"
-PLACEHOLDER = "{AGENT_NAME}"
 
-# Directories to copy verbatim (files inside get placeholder replacement)
-COPY_DIRS = [
+# Extensions treated as text (substitution applied)
+TEXT_EXTENSIONS = {
+    ".py", ".md", ".yaml", ".yml", ".txt", ".example",
+    ".json", ".sh", ".toml", ".cfg", ".ini",
+}
+
+# Always-excluded patterns
+SKIP_NAMES = {"__pycache__", ".DS_Store"}
+SKIP_SUFFIXES = {".pyc", ".pyo"}
+
+# Directories always copied from BlackZero
+ALWAYS_COPY_DIRS = [
     "brain",
-    "conversation",
-    "diagnostics",
-    "identity",
     "memory",
     "models",
-    "policies",
-    "rag",
-    "storage",
-    "tools",
-]
-
-# Files to copy from BlackZero root
-COPY_ROOT_FILES = [
-    "loader.py",
-]
-
-# Directories to create (empty, with .gitkeep or __init__.py)
-CREATE_DIRS = [
     "modules",
-    "voice",
-    "tests",
-    "wargames/scenarios",
-    "wargames/playbooks",
-    "wargames/results",
-    "wargames/baselines",
+    "tools",
+    "conversation",
+    "policies",
+    "security",
+    "diagnostics",
+    "storage",
 ]
 
-# Extensions that get placeholder replacement
-TEXT_EXTENSIONS = {".py", ".md", ".yaml", ".yml", ".json", ".txt"}
+# Individual files always copied from BlackZero root
+ALWAYS_COPY_FILES = [
+    "loader.py",
+    "main.py",
+    "config.yaml",
+    "config_loader.py",
+    "requirements.txt",
+    ".env.example",
+    ".gitignore",
+]
+
+# Identity templates (always copied)
+IDENTITY_FILES = [
+    "identity/mission.md",
+    "identity/personality.yaml",
+]
+
+# Optional directories/files
+OPTIONAL_RAG = "rag"
+OPTIONAL_DOCKER_FILES = ["Dockerfile", "docker-compose.yml"]
+OPTIONAL_TESTS_DIR = "tests"
 
 
-def _replace_placeholders(content: str, agent_name: str) -> str:
-    """Replace {AGENT_NAME} and derived placeholders."""
-    content = content.replace(PLACEHOLDER, agent_name)
-    content = content.replace("{AGENT_NAME_LOWER}", agent_name.lower())
+# ---------------------------------------------------------------------------
+# Template substitution
+# ---------------------------------------------------------------------------
+
+def _build_substitutions(
+    name: str,
+    alias: str,
+    role: str,
+    slug: str,
+    pronouns: str,
+) -> dict[str, str]:
+    return {
+        "{AGENT_NAME}": name,
+        "{AGENT_ALIAS}": alias,
+        "{AGENT_ROLE}": role,
+        "{agent_slug}": slug,
+        "{AGENT_PRONOUNS}": pronouns,
+        # Legacy lower-case variant used in the older stamp
+        "{AGENT_NAME_LOWER}": slug,
+    }
+
+
+def _apply_substitutions(content: str, subs: dict[str, str]) -> str:
+    for token, replacement in subs.items():
+        content = content.replace(token, replacement)
     return content
 
 
 def _rewrite_blackzero_imports(content: str) -> str:
-    """Rewrite any BlackZero.X imports to local X imports in .py files."""
-    # from BlackZero.brain.loop -> from brain.loop
-    content = re.sub(r"from BlackZero\.(\w+)", r"from \1", content)
-    # import BlackZero.brain.loop -> import brain.loop
-    content = re.sub(r"import BlackZero\.(\w+)", r"import \1", content)
+    """Rewrite BlackZero-prefixed imports to local imports."""
+    content = re.sub(r"from BlackZero\.", "from ", content)
+    content = re.sub(r"import BlackZero\.", "import ", content)
     return content
 
 
-def _rewrite_loader(content: str, agent_name: str) -> str:
-    """Rewrite BlackZero loader.py imports to be local."""
-    agent_lower = agent_name.lower()
+def _rewrite_main_py(content: str) -> str:
+    """
+    Replace the dual sys.path / try-except import block with the single-path
+    stamped form that has no fallback to BlackZero.
 
-    # Rewrite docstring
+    Must be called BEFORE _rewrite_blackzero_imports so the original text
+    is still present. Uses a regex to tolerate minor whitespace variation.
+    """
+    # Match the dual sys.path block + try/except regardless of trailing comments
     content = re.sub(
-        r'""".*?"""',
-        f'"""\nloader.py \u2014 {agent_name}\'s Module Loader\n\n'
-        f'Stamped from BlackZero at creation. This file belongs to {agent_name}.\n'
-        f'It references only {agent_name}\'s own brain files.\n\n'
-        f'Boot sequence: config \u2192 discover \u2192 setup() \u2192 wire \u2192 CognitiveLoop\n\n'
-        f'Every agent calls:\n'
-        f'    from loader import boot\n'
-        f'    loop = boot("config.yaml", "modules/")\n'
-        f'    loop.run()\n\n'
-        f'Module contract:\n'
-        f'    Each module is a subdirectory in modules/ containing a module.py that exports:\n'
-        f'        def setup(config: dict) -> dict\n'
-        f'    The returned dict maps slot names to implementations.\n'
-        f'"""',
+        r"_here = Path\(__file__\)\.resolve\(\)\.parent\n"
+        r"sys\.path\.insert\(0, str\(_here\)\)[^\n]*\n"
+        r"sys\.path\.insert\(0, str\(_here\.parent\)\)[^\n]*\n"
+        r"\n"
+        r"try:\n"
+        r"    from loader import boot[^\n]*\n"
+        r"except ImportError:\n"
+        r"    from BlackZero\.loader import boot[^\n]*",
+        "_here = Path(__file__).resolve().parent\n"
+        "sys.path.insert(0, str(_here))\n"
+        "\n"
+        "from loader import boot",
         content,
-        count=1,
+    )
+    return content
+
+
+def _rename_agent_config_class(content: str, name: str) -> str:
+    """
+    Rename AgentConfig → {NAME}Config in class definitions and import lines only.
+    Avoids clobbering docstring mentions that already contain the agent name
+    (e.g. 'Rename class to TestAgentConfig' would become 'TestTestAgentConfig').
+    """
+    # class definition line: "class AgentConfig:"
+    content = re.sub(r"\bclass AgentConfig\b", f"class {name}Config", content)
+    # import statement: "from config_loader import AgentConfig"
+    content = re.sub(r"\bimport AgentConfig\b", f"import {name}Config", content)
+    # variable instantiation: "cfg = AgentConfig("
+    content = re.sub(r"\bAgentConfig\(", f"{name}Config(", content)
+    return content
+
+
+def _rewrite_loader_docstring(content: str, name: str) -> str:
+    """
+    Replace the stamp ownership line in the loader docstring.
+    Handles both the BlackZero original and any previously-stamped form.
+    """
+    content = re.sub(
+        r"Stamped from BlackZero at creation\. This file belongs to \S+\.",
+        f"Stamped from BlackZero at creation. This file belongs to {name}.",
+        content,
+    )
+    return content
+
+
+def _rewrite_docker_compose(content: str, slug: str) -> str:
+    """Replace generic service/container names with the agent slug."""
+    content = re.sub(r"\bservice:\s+agent\b", f"service: {slug}", content)
+    # service name key (indented line like "  agent:")
+    content = re.sub(r"^(\s+)agent(\s*:)", rf"\1{slug}\2", content, flags=re.MULTILINE)
+    content = re.sub(r"\bcontainer_name:\s+agent\b", f"container_name: {slug}", content)
+    return content
+
+
+def _inject_capabilities(content: str, capabilities: list[str]) -> str:
+    """
+    Replace 'capabilities: []' in the plugops_bridge section with the
+    actual capabilities list.
+    """
+    if not capabilities:
+        return content
+    cap_yaml = "[" + ", ".join(f'"{c}"' for c in capabilities) + "]"
+    content = re.sub(
+        r"(plugops_bridge:.*?capabilities:\s*)\[\]",
+        rf"\g<1>{cap_yaml}",
+        content,
         flags=re.DOTALL,
     )
-
-    # Rewrite imports: BlackZero.brain.X -> brain.X, BlackZero.tools.X -> tools.X
-    content = re.sub(r"from BlackZero\.brain\.", "from brain.", content)
-    content = re.sub(r"from BlackZero\.tools\.", "from tools.", content)
-    content = re.sub(r"from BlackZero\.", "from ", content)
-
-    # Rewrite data_dir default
-    content = content.replace('data_dir", "~/.blackzero"', f'data_dir", "~/.{agent_lower}"')
-
     return content
 
 
-def _generate_main_py(agent_name: str) -> str:
-    """Generate a stub main.py for the new agent."""
-    agent_lower = agent_name.lower()
-    return f'''#!/usr/bin/env python3
-"""{agent_name} main entry point."""
-from __future__ import annotations
-
-import argparse
-import logging
-import sys
-from pathlib import Path
-
-# {agent_name}'s own directory must be on sys.path for local imports to resolve
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from loader import boot
-from config_loader import {agent_name}Config
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [{agent_name}] %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+def _rewrite_data_dir(content: str, slug: str) -> str:
+    """Rewrite the blackzero default data_dir to the agent's slug."""
+    content = content.replace('data_dir", "~/.blackzero"', f'data_dir", "~/.{slug}"')
+    return content
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="{agent_name} agent")
-    parser.add_argument("--once", nargs="+", help="Run one cognitive cycle with the supplied prompt.")
-    args = parser.parse_args()
+# ---------------------------------------------------------------------------
+# File I/O helpers
+# ---------------------------------------------------------------------------
 
-    repo_root = Path(__file__).parent
-    config = {agent_name}Config(repo_root / "config.yaml")
+def _is_text_file(path: Path) -> bool:
+    """Return True if the file should have text substitution applied."""
+    if path.suffix.lower() in TEXT_EXTENSIONS:
+        return True
+    # Dockerfile has no extension
+    if path.name == "Dockerfile":
+        return True
+    return False
 
-    config_path = str(repo_root / "config.yaml")
-    modules_dir = str(repo_root / "modules")
 
-    loop = boot(config_path, modules_dir)
+def _should_skip(path: Path) -> bool:
+    """Return True if this file/directory should never be copied."""
+    for part in path.parts:
+        if part in SKIP_NAMES:
+            return True
+    if path.suffix in SKIP_SUFFIXES:
+        return True
+    if path.name == ".env":
+        return True
+    return False
 
-    # --once mode: single cycle and exit
-    if args.once:
-        prompt = " ".join(args.once)
-        result = loop.run_once(prompt)
-        print(f"\\n[cycle {{result[\'cycle_id\']}}] {{result[\'outcome\']}} "
-              f"(score={{result[\'score\']:.2f}}, {{result[\'duration_ms\']:.0f}}ms)")
+
+def _copy_file(
+    src: Path,
+    dst: Path,
+    subs: dict[str, str],
+    name: str,
+    slug: str,
+    capabilities: list[str],
+    extra_transforms: list[str],  # which special rewrites to apply
+) -> None:
+    """Copy a single file, applying text transformations as needed."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+
+    if not _is_text_file(src):
+        shutil.copy2(src, dst)
         return
 
-    # Interactive mode
-    print(f"\\n{agent_name} online. Type to interact. Ctrl+C to stop.\\n")
-    loop.run()
+    try:
+        content = src.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        # Binary file masquerading with a text extension — copy verbatim
+        shutil.copy2(src, dst)
+        return
+
+    # 1. Template variable substitution
+    content = _apply_substitutions(content, subs)
+
+    # 2. Python-specific rewrites
+    if src.suffix == ".py":
+        content = _rewrite_blackzero_imports(content)
+
+    # 3. File-specific rewrites
+    if "rewrite_main" in extra_transforms:
+        content = _rewrite_main_py(content)
+        content = _rename_agent_config_class(content, name)
+
+    if "rewrite_config_loader" in extra_transforms:
+        content = _rename_agent_config_class(content, name)
+
+    if "rewrite_loader" in extra_transforms:
+        content = _rewrite_loader_docstring(content, name)
+        content = _rewrite_data_dir(content, slug)
+
+    if "rewrite_docker_compose" in extra_transforms:
+        content = _rewrite_docker_compose(content, slug)
+
+    if "inject_capabilities" in extra_transforms:
+        content = _inject_capabilities(content, capabilities)
+
+    dst.write_text(content, encoding="utf-8")
 
 
-if __name__ == "__main__":
-    main()
-'''
+# ---------------------------------------------------------------------------
+# Directory walk helpers
+# ---------------------------------------------------------------------------
+
+def _copy_dir(
+    src_dir: Path,
+    dst_dir: Path,
+    subs: dict[str, str],
+    name: str,
+    slug: str,
+    capabilities: list[str],
+    extra_map: dict[str, list[str]],  # filename -> extra_transforms
+) -> list[Path]:
+    """Recursively copy src_dir to dst_dir. Returns list of files created."""
+    if not src_dir.exists():
+        return []
+
+    created = []
+    for src_file in sorted(src_dir.rglob("*")):
+        if not src_file.is_file():
+            continue
+        if _should_skip(src_file):
+            continue
+
+        rel = src_file.relative_to(src_dir)
+        dst_file = dst_dir / rel
+
+        transforms = extra_map.get(src_file.name, [])
+        _copy_file(src_file, dst_file, subs, name, slug, capabilities, transforms)
+        created.append(dst_file)
+
+    return created
 
 
-def _generate_config_loader(agent_name: str) -> str:
-    """Generate a config_loader.py for the new agent."""
-    agent_lower = agent_name.lower()
-    return f'''"""
-config_loader.py \u2014 {agent_name} Configuration
+# ---------------------------------------------------------------------------
+# Main stamp logic
+# ---------------------------------------------------------------------------
 
-Loads config.yaml and provides typed access to settings.
-"""
-from __future__ import annotations
-
-from pathlib import Path
-from typing import Any
-
-import yaml
-
-
-class {agent_name}Config:
-    """Typed wrapper around config.yaml."""
-
-    def __init__(self, config_path: str | Path):
-        config_path = Path(config_path)
-        if config_path.exists():
-            with open(config_path) as f:
-                self._raw = yaml.safe_load(f) or {{}}
-        else:
-            self._raw = {{}}
-
-    @property
-    def identity(self) -> dict:
-        return self._raw.get("identity", {{}})
-
-    @property
-    def name(self) -> str:
-        return self.identity.get("designation", "{agent_name}")
-
-    @property
-    def alias(self) -> str:
-        return self.identity.get("alias", "{agent_name}")
-
-    @property
-    def models(self) -> dict:
-        return self._raw.get("models", {{}})
-
-    @property
-    def tools(self) -> dict:
-        return self._raw.get("tools", {{}})
-
-    @property
-    def modules(self) -> dict:
-        return self._raw.get("modules", {{}})
-
-    @property
-    def data_dir(self) -> Path:
-        return Path(self._raw.get("data_dir", "~/.{agent_lower}")).expanduser()
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._raw.get(key, default)
-
-    def get_module_config(self, module_name: str) -> dict:
-        return self.modules.get(module_name, {{}})
-'''
-
-
-def _generate_config_yaml(agent_name: str) -> str:
-    """Generate a skeleton config.yaml."""
-    agent_lower = agent_name.lower()
-    return f"""identity:
-  designation: "{agent_name}"
-  alias: "{agent_name}"
-  role: "agent"
-  pronouns: "they/them"
-  owner: "Computer Black"
-
-data_dir: "~/.{agent_lower}"
-
-tools:
-  ollama_api: "http://localhost:11434/api"
-
-models:
-  reasoning: "{agent_lower}:latest"
-  fast: "{agent_lower}:latest"
-  chat: "{agent_lower}:latest"
-  code: "qwen2.5-coder:3b"
-
-loop:
-  check_interval_seconds: 10
-  max_concurrent_tasks: 2
-  task_timeout_seconds: 300
-
-modules:
-  ollama_provider:
-    timeout: 60
-  console_io: {{}}
-"""
-
-
-def _generate_structure_tests(agent_name: str) -> str:
-    """Generate structure validation tests."""
-    return f'''"""
-Structure validation tests for {agent_name}.
-
-Ensures the agent scaffold is correct and has zero GENESIS imports.
-"""
-import re
-import unittest
-from pathlib import Path
-
-AGENT_ROOT = Path(__file__).resolve().parent.parent
-
-
-class TestAgentStructure(unittest.TestCase):
-    """Validate {agent_name} directory structure."""
-
-    REQUIRED_DIRS = [
-        "brain", "tools", "models", "policies", "identity",
-        "conversation", "memory", "rag", "storage", "diagnostics",
-        "modules", "voice",
-    ]
-
-    BRAIN_FILES = {{"loop.py", "planner.py", "executor.py", "router.py"}}
-
-    REQUIRED_POLICIES = [
-        "governance.md", "safety.md", "permissions.md",
-        "escalation_protocol.md",
-    ]
-
-    def test_required_folders_exist(self):
-        for d in self.REQUIRED_DIRS:
-            self.assertTrue(
-                (AGENT_ROOT / d).is_dir(),
-                f"Missing required directory: {{d}}/",
-            )
-
-    def test_brain_files_locked(self):
-        brain_dir = AGENT_ROOT / "brain"
-        actual = {{f.name for f in brain_dir.glob("*.py")}}
-        self.assertEqual(actual, self.BRAIN_FILES,
-                         f"Brain must contain exactly {{self.BRAIN_FILES}}, got {{actual}}")
-
-    def test_no_genesis_imports(self):
-        violations = []
-        for py_file in AGENT_ROOT.rglob("*.py"):
-            if "__pycache__" in str(py_file):
-                continue
-            content = py_file.read_text(errors="replace")
-            for pattern in [r"from BlackZero\\b", r"from GENESIS\\b",
-                            r"import BlackZero\\b", r"import GENESIS\\b"]:
-                if re.search(pattern, content):
-                    violations.append(f"{{py_file.relative_to(AGENT_ROOT)}}: matches {{pattern}}")
-        self.assertEqual(violations, [],
-                         f"GENESIS/BlackZero imports found:\\n" + "\\n".join(violations))
-
-    def test_identity_files_exist(self):
-        self.assertTrue((AGENT_ROOT / "identity" / "mission.md").exists())
-        self.assertTrue((AGENT_ROOT / "identity" / "personality.yaml").exists())
-
-    def test_policies_complete(self):
-        for p in self.REQUIRED_POLICIES:
-            self.assertTrue(
-                (AGENT_ROOT / "policies" / p).exists(),
-                f"Missing policy: {{p}}",
-            )
-
-    def test_loader_stamped(self):
-        loader = AGENT_ROOT / "loader.py"
-        self.assertTrue(loader.exists(), "loader.py missing")
-        content = loader.read_text()
-        self.assertIn("Stamped from BlackZero", content,
-                       "loader.py missing stamp header")
-        self.assertIn("{agent_name}", content,
-                       "loader.py not stamped for {agent_name}")
-
-
-if __name__ == "__main__":
-    unittest.main()
-'''
-
-
-def stamp_agent(agent_name: str, out_dir: Path, overwrite: bool = False) -> None:
-    """Create a full agent scaffold from the BlackZero template."""
+def stamp_agent(
+    name: str,
+    out: Path,
+    alias: str,
+    role: str,
+    pronouns: str,
+    data_dir_override: str | None,
+    no_rag: bool,
+    no_docker: bool,
+    no_tests: bool,
+    capabilities: list[str],
+    force: bool,
+) -> None:
 
     if not BLACKZERO_DIR.exists():
         print(f"ERROR: BlackZero template not found: {BLACKZERO_DIR}", file=sys.stderr)
         sys.exit(1)
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"\nStamping BlackZero \u2192 {agent_name}")
-    print(f"Output: {out_dir}\n")
+    # Derived values
+    slug = name.lower().replace(" ", "").replace("-", "")
+    data_dir = data_dir_override or f"~/.{slug}"
 
-    created = 0
-    skipped = 0
-
-    # --- Copy directories ---
-    for dirname in COPY_DIRS:
-        src_dir = BLACKZERO_DIR / dirname
-        dst_dir = out_dir / dirname
-        if not src_dir.exists():
-            print(f"  WARN   {dirname}/ not found in template, skipping")
-            continue
-
-        dst_dir.mkdir(parents=True, exist_ok=True)
-
-        for src_file in sorted(src_dir.rglob("*")):
-            if not src_file.is_file():
-                continue
-            if "__pycache__" in str(src_file) or src_file.name == ".DS_Store":
-                continue
-
-            rel = src_file.relative_to(src_dir)
-            dst_file = dst_dir / rel
-            dst_file.parent.mkdir(parents=True, exist_ok=True)
-
-            if dst_file.exists() and not overwrite:
-                skipped += 1
-                continue
-
-            if src_file.suffix in TEXT_EXTENSIONS:
-                content = src_file.read_text(encoding="utf-8")
-                content = _replace_placeholders(content, agent_name)
-                if src_file.suffix == ".py":
-                    content = _rewrite_blackzero_imports(content)
-                dst_file.write_text(content, encoding="utf-8")
-            else:
-                shutil.copy2(src_file, dst_file)
-            created += 1
-            print(f"  COPY   {dirname}/{rel}")
-
-    # --- Copy and rewrite loader.py ---
-    loader_src = BLACKZERO_DIR / "loader.py"
-    loader_dst = out_dir / "loader.py"
-    if loader_dst.exists() and not overwrite:
-        print(f"  SKIP   loader.py (exists)")
-        skipped += 1
-    else:
-        content = loader_src.read_text(encoding="utf-8")
-        content = _rewrite_loader(content, agent_name)
-        content = _replace_placeholders(content, agent_name)
-        loader_dst.write_text(content, encoding="utf-8")
-        created += 1
-        print(f"  CREATE loader.py (rewritten for {agent_name})")
-
-    # --- Generate main.py ---
-    main_dst = out_dir / "main.py"
-    if main_dst.exists() and not overwrite:
-        print(f"  SKIP   main.py (exists)")
-        skipped += 1
-    else:
-        main_dst.write_text(_generate_main_py(agent_name), encoding="utf-8")
-        created += 1
-        print(f"  CREATE main.py")
-
-    # --- Generate config_loader.py ---
-    cl_dst = out_dir / "config_loader.py"
-    if cl_dst.exists() and not overwrite:
-        print(f"  SKIP   config_loader.py (exists)")
-        skipped += 1
-    else:
-        cl_dst.write_text(_generate_config_loader(agent_name), encoding="utf-8")
-        created += 1
-        print(f"  CREATE config_loader.py")
-
-    # --- Generate config.yaml ---
-    cfg_dst = out_dir / "config.yaml"
-    if cfg_dst.exists() and not overwrite:
-        print(f"  SKIP   config.yaml (exists)")
-        skipped += 1
-    else:
-        cfg_dst.write_text(_generate_config_yaml(agent_name), encoding="utf-8")
-        created += 1
-        print(f"  CREATE config.yaml")
-
-    # --- Create empty directories ---
-    for dirname in CREATE_DIRS:
-        d = out_dir / dirname
-        d.mkdir(parents=True, exist_ok=True)
-        init = d / "__init__.py"
-        if not init.exists():
-            init.write_text("", encoding="utf-8")
-
-    # --- Generate voice stub ---
-    voice_profile = out_dir / "voice" / "profile.py"
-    if not voice_profile.exists() or overwrite:
-        voice_profile.write_text(
-            f'"""\nvoice/profile.py \u2014 {agent_name}\'s voice profile.\n\n'
-            f'Subclass VoiceProfile here to define {agent_name}\'s personality.\n"""\n'
-            f'from __future__ import annotations\n\n'
-            f'from conversation.voice_profile import VoiceProfile\n\n\n'
-            f'class {agent_name}Voice(VoiceProfile):\n'
-            f'    """Override with {agent_name}-specific personality."""\n\n'
-            f'    def __init__(self) -> None:\n'
-            f'        super().__init__(name="{agent_name}")\n\n\n'
-            f'{agent_name.lower()}_voice = {agent_name}Voice()\n',
-            encoding="utf-8",
+    # Guard against stomping an existing non-empty directory
+    if out.exists() and any(out.iterdir()) and not force:
+        print(
+            f"ERROR: Output directory is non-empty: {out}\n"
+            f"       Pass --force to overwrite.",
+            file=sys.stderr,
         )
-        created += 1
-        print(f"  CREATE voice/profile.py")
+        sys.exit(1)
 
-    # --- Generate tests ---
-    tests_init = out_dir / "tests" / "__init__.py"
-    if not tests_init.exists():
-        tests_init.write_text("", encoding="utf-8")
-    struct_tests = out_dir / "tests" / "structure_tests.py"
-    if not struct_tests.exists() or overwrite:
-        struct_tests.write_text(_generate_structure_tests(agent_name), encoding="utf-8")
-        created += 1
-        print(f"  CREATE tests/structure_tests.py")
+    out.mkdir(parents=True, exist_ok=True)
 
-    # --- Summary ---
-    print(f"\n  {created} files created, {skipped} skipped.")
-    print(f"\nNext steps:")
-    print(f"  1. Write identity/mission.md \u2014 {agent_name}'s fixed purpose")
-    print(f"  2. Write identity/personality.yaml \u2014 tone, traits, boundaries")
-    print(f"  3. Edit policies/permissions.md \u2014 add Section 5 for {agent_name}")
-    print(f"  4. Create modules/ with concrete providers (ollama_provider, console_io, etc.)")
-    print(f"  5. Customize config.yaml")
-    print(f"  6. Run: python -m pytest tests/structure_tests.py -v\n")
+    subs = _build_substitutions(name, alias, role, slug, pronouns)
+    # Also substitute the data_dir token if it appears literally
+    subs["~/.{agent_slug}"] = data_dir
 
+    file_count = 0
+
+    print(f"\nStamping BlackZero -> {name}")
+    print(f"  alias={alias}  role={role}  slug={slug}")
+    print(f"  output={out}\n")
+
+    # ------------------------------------------------------------------
+    # 1. Copy always-copied directories
+    # ------------------------------------------------------------------
+    for dirname in ALWAYS_COPY_DIRS:
+        src_dir = BLACKZERO_DIR / dirname
+        if not src_dir.exists():
+            print(f"  WARN   {dirname}/ not found in BlackZero, skipping")
+            continue
+        dst_dir = out / dirname
+        created = _copy_dir(src_dir, dst_dir, subs, name, slug, capabilities, {})
+        for f in created:
+            print(f"  COPY   {f.relative_to(out)}")
+        file_count += len(created)
+
+    # ------------------------------------------------------------------
+    # 2. Copy identity templates
+    # ------------------------------------------------------------------
+    for rel_str in IDENTITY_FILES:
+        src_file = BLACKZERO_DIR / rel_str
+        if not src_file.exists():
+            print(f"  WARN   {rel_str} not found in BlackZero, skipping")
+            continue
+        dst_file = out / rel_str
+        dst_file.parent.mkdir(parents=True, exist_ok=True)
+        _copy_file(src_file, dst_file, subs, name, slug, capabilities, [])
+        print(f"  COPY   {rel_str}")
+        file_count += 1
+
+    # ------------------------------------------------------------------
+    # 3. Copy root files with targeted rewrites
+    # ------------------------------------------------------------------
+    file_transforms: dict[str, list[str]] = {
+        "main.py": ["rewrite_main"],
+        "config_loader.py": ["rewrite_config_loader"],
+        "loader.py": ["rewrite_loader"],
+        "config.yaml": ["inject_capabilities"],
+    }
+
+    for filename in ALWAYS_COPY_FILES:
+        src_file = BLACKZERO_DIR / filename
+        if not src_file.exists():
+            print(f"  WARN   {filename} not found in BlackZero, skipping")
+            continue
+        dst_file = out / filename
+        transforms = file_transforms.get(filename, [])
+        _copy_file(src_file, dst_file, subs, name, slug, capabilities, transforms)
+        print(f"  COPY   {filename}")
+        file_count += 1
+
+    # ------------------------------------------------------------------
+    # 4. Optional: rag/
+    # ------------------------------------------------------------------
+    if not no_rag:
+        src_rag = BLACKZERO_DIR / OPTIONAL_RAG
+        if src_rag.exists():
+            created = _copy_dir(src_rag, out / OPTIONAL_RAG, subs, name, slug, capabilities, {})
+            for f in created:
+                print(f"  COPY   {f.relative_to(out)}")
+            file_count += len(created)
+        else:
+            print(f"  WARN   rag/ not found in BlackZero, skipping")
+
+    # ------------------------------------------------------------------
+    # 5. Optional: Dockerfile + docker-compose.yml
+    # ------------------------------------------------------------------
+    if not no_docker:
+        for filename in OPTIONAL_DOCKER_FILES:
+            src_file = BLACKZERO_DIR / filename
+            if not src_file.exists():
+                print(f"  WARN   {filename} not found in BlackZero, skipping")
+                continue
+            transforms = ["rewrite_docker_compose"] if filename == "docker-compose.yml" else []
+            dst_file = out / filename
+            _copy_file(src_file, dst_file, subs, name, slug, capabilities, transforms)
+            print(f"  COPY   {filename}")
+            file_count += 1
+
+    # ------------------------------------------------------------------
+    # 6. Optional: tests/
+    # ------------------------------------------------------------------
+    if not no_tests:
+        src_tests = BLACKZERO_DIR / OPTIONAL_TESTS_DIR
+        if src_tests.exists():
+            created = _copy_dir(
+                src_tests, out / OPTIONAL_TESTS_DIR, subs, name, slug, capabilities, {}
+            )
+            for f in created:
+                print(f"  COPY   {f.relative_to(out)}")
+            file_count += len(created)
+        else:
+            print(f"  WARN   tests/ not found in BlackZero, skipping")
+
+    # ------------------------------------------------------------------
+    # 7. Make main.py executable
+    # ------------------------------------------------------------------
+    main_py = out / "main.py"
+    if main_py.exists():
+        main_py.chmod(main_py.stat().st_mode | 0o111)
+
+    # ------------------------------------------------------------------
+    # 8. Summary
+    # ------------------------------------------------------------------
+    rag_note = "" if not no_rag else ", rag disabled"
+    cap_display = ", ".join(capabilities) if capabilities else "(none)"
+
+    print(f"\n  Stamped {name} at {out}")
+    print(f"  Files:    {file_count}")
+    print(f"  Identity: {name} ({alias}) — {role}")
+    print(f"  Data dir: {data_dir}")
+    print(f"  Model:    {slug}:latest")
+    print(f"  Modules:  console_io, memory, ollama_provider, plugops_bridge{rag_note}")
+    print(f"  Caps:     {cap_display}")
+    print()
+    print("Next steps:")
+    print(f"  1. Create your Modelfile and run: ollama create {slug} -f Modelfile")
+    print(f"  2. Edit config.yaml to fill in any remaining details")
+    print(f"  3. Copy .env.example to .env and add API keys (optional)")
+    print(f"  4. python main.py")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Stamp a full agent scaffold from the BlackZero template"
+        description="Stamp a new standalone agent from the BlackZero template.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
     )
-    parser.add_argument("--name", required=True, help="Agent name (e.g. Cerberus, Teacher)")
-    parser.add_argument("--out", required=True, help="Output directory for the agent")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing files")
+    parser.add_argument("--name", required=True,
+                        help='Agent designation, e.g. "Engineer0"')
+    parser.add_argument("--out", required=True,
+                        help="Output directory path")
+    parser.add_argument("--alias", default=None,
+                        help="Short display name (default: same as --name)")
+    parser.add_argument("--role", default="Agent",
+                        help='One-line role description (default: "Agent")')
+    parser.add_argument("--pronouns", default="they/them",
+                        help='Pronouns (default: "they/them")')
+    parser.add_argument("--data-dir", dest="data_dir", default=None,
+                        help="Data directory override (default: ~/.{slug})")
+    parser.add_argument("--no-rag", action="store_true",
+                        help="Skip rag/ directory")
+    parser.add_argument("--no-docker", action="store_true",
+                        help="Skip Dockerfile and docker-compose.yml")
+    parser.add_argument("--no-tests", action="store_true",
+                        help="Skip tests/ directory")
+    parser.add_argument("--force", action="store_true",
+                        help="Overwrite an existing non-empty output directory")
+    parser.add_argument("--capabilities", default=None,
+                        help='Comma-separated capabilities, e.g. "code,debug,deploy"')
     args = parser.parse_args()
 
+    capabilities = (
+        [c.strip() for c in args.capabilities.split(",") if c.strip()]
+        if args.capabilities
+        else []
+    )
+
     stamp_agent(
-        agent_name=args.name,
-        out_dir=Path(args.out).expanduser().resolve(),
-        overwrite=args.overwrite,
+        name=args.name,
+        out=Path(args.out).expanduser().resolve(),
+        alias=args.alias or args.name,
+        role=args.role,
+        pronouns=args.pronouns,
+        data_dir_override=args.data_dir,
+        no_rag=args.no_rag,
+        no_docker=args.no_docker,
+        no_tests=args.no_tests,
+        capabilities=capabilities,
+        force=args.force,
     )
 
 

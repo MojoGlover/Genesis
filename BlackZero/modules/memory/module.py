@@ -21,8 +21,20 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+MANIFEST = {
+    "name": "memory",
+    "description": "SQLite memory manager",
+    "requires_credentials": [],
+    "requires_config": [],
+    "provides": ["memory_manager"],
+    "capabilities": [],
+}
+
 
 def setup(config: dict) -> dict:
+    from modules.module_manifest import registry
+    registry.register("memory", MANIFEST, status="active")
+
     from memory.sqlite_memory_manager import SQLiteMemoryManager
 
     # DATA_DIR env var wins (Docker volume mount).

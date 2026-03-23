@@ -31,6 +31,16 @@ from models.provider_adapter import ProviderAdapter, ProviderError
 
 logger = logging.getLogger(__name__)
 
+MANIFEST = {
+    "name": "ollama_provider",
+    "description": "Ollama model router with cloud fallback",
+    "requires_credentials": [],
+    "requires_config": [],
+    "provides": ["model_router"],
+    "optional_credentials": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
+    "capabilities": ["generation"],
+}
+
 
 def _clean_response(text: str) -> str:
     """Strip wrapper artifacts from model output."""
@@ -144,6 +154,9 @@ class OllamaRouter(ModelRouter):
 
 def setup(config: dict) -> dict:
     """Module entry point. Called by the loader."""
+    from modules.module_manifest import registry
+    registry.register("ollama_provider", MANIFEST, status="active")
+
     models     = config.get("models", {})
     tools      = config.get("tools", {})
     identity   = config.get("identity", {})

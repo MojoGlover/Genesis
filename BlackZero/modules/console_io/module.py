@@ -24,6 +24,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+MANIFEST = {
+    "name": "console_io",
+    "description": "stdin/stdout interface for the cognitive loop",
+    "requires_credentials": [],
+    "requires_config": [],
+    "provides": ["sinks", "error_sink", "input_feed"],
+    "capabilities": [],
+}
+
 
 def _make_user_sink(alias: str) -> callable:
     def sink(output: str) -> None:
@@ -62,6 +71,9 @@ def _make_input_feeder() -> callable:
 
 def setup(config: dict) -> dict:
     """Module entry point. Called by the loader."""
+    from modules.module_manifest import registry
+    registry.register("console_io", MANIFEST, status="active")
+
     identity = config.get("identity", {})
     alias    = identity.get("alias") or identity.get("designation", "Agent")
 
