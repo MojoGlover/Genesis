@@ -20,6 +20,7 @@ NOTE: This file is locked. Do not rename, remove, or nest it.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,7 +39,10 @@ _POLICY_COMMON_WORDS = {
     "recruit", "persist", "cause", "intend", "design", "operate", "execute",
     "facilitate", "transmit", "store", "prevent", "delay", "enable",
     "content", "involving", "actions", "against", "systems", "plans",
-    "unauthorized", "authorized", "intended",
+    "unauthorized", "authorized", "intended", "could", "would", "should",
+    "build", "built", "agent", "agents", "system", "task", "tasks",
+    "memory", "thinking", "performing", "evaluating", "intelligence",
+    "artificial", "create", "capable",
 }
 
 
@@ -123,10 +127,7 @@ class PolicyFilter:
         """
         prohibition_keywords = ["never", "not allowed", "prohibited", "must not", "forbidden"]
 
-        match_words = [
-            w for w in content.lower().split()
-            if len(w) > 4 and w not in _POLICY_COMMON_WORDS
-        ]
+        match_words = self._significant_tokens(content)
         anchor_words = [w for w in match_words if len(w) > 8]
         secondary_words = [w for w in match_words if 4 < len(w) <= 8]
 
@@ -151,9 +152,10 @@ class PolicyFilter:
                     j += 1
 
                 rule_text = " ".join(rule_lines).lower()
+                rule_tokens = set(self._significant_tokens(rule_text))
 
-                # Anchor: one very-specific term is enough
-                if any(w in rule_text for w in anchor_words):
+                # Anchor: one very-specific term is enough (token match, not substring)
+                if any(w in rule_tokens for w in anchor_words):
                     citation = " ".join(ln.strip() for ln in rule_lines)
                     return {
                         "allowed": False,
@@ -162,8 +164,8 @@ class PolicyFilter:
                         "cited_file": f"BlackZero/policies/{filename}",
                     }
 
-                # Secondary: need ≥2 co-occurring medium-specificity words
-                sec_matches = sum(1 for w in secondary_words if w in rule_text)
+                # Secondary: need ≥2 co-occurring medium-specificity words (token match)
+                sec_matches = sum(1 for w in secondary_words if w in rule_tokens)
                 if sec_matches >= 2:
                     citation = " ".join(ln.strip() for ln in rule_lines)
                     return {
@@ -178,6 +180,17 @@ class PolicyFilter:
                 i += 1
 
         return None
+
+    @staticmethod
+    def _significant_tokens(text: str) -> list[str]:
+        """Extract meaningful tokens using regex — avoids false positives from
+        substring matching that .split() + 'w in rule_text' would cause
+        (e.g. 'write' matching 'rewrite', 'sort' matching 'distort')."""
+        tokens = re.findall(r"[a-z0-9']+", text.lower())
+        return [
+            token for token in tokens
+            if len(token) > 4 and token not in _POLICY_COMMON_WORDS
+        ]
 
 
 # ------------------------------------------------------------------
