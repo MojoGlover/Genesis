@@ -1,0 +1,57 @@
+# config.yaml — Agent configuration template
+# Stamped from BlackZero at creation. Fill in identity section.
+# All other sections have working defaults.
+
+identity:
+  designation: "{AGENT_NAME}"        # full name, e.g. "Engineer0"
+  alias:        "{AGENT_ALIAS}"      # short name / display name, e.g. "Zero"
+  role:         "{AGENT_ROLE}"       # one-line role, e.g. "Development Supervisor"
+  pronouns:     "they/them"          # update as appropriate
+  owner:        "Computer Black"
+
+# Persistent data storage
+# Overridden by DATA_DIR env var in Docker
+data_dir: "~/.{agent_slug}"          # e.g. ~/.engineer0 — stamp tool fills this in
+
+# Ollama model names
+# Primary model should be a Modelfile built on top of BlackZero base
+models:
+  reasoning:  "{agent_slug}:latest"  # e.g. engineer0:latest
+  fast:       "{agent_slug}:latest"
+  chat:       "{agent_slug}:latest"
+  code:       "qwen2.5-coder:3b"
+  embedding:  "all-mpnet-base-v2"
+
+# Tool paths — local Mac defaults, unused in Docker
+tools:
+  ollama_api: "http://localhost:11434/api"   # override via OLLAMA_API_URL env var
+
+# Cognitive loop tuning
+loop:
+  check_interval_seconds: 30
+  max_concurrent_tasks:   3
+  task_timeout_seconds:   300
+  max_retries:            3
+  retry_backoff_base:     2
+
+# Per-module configuration
+modules:
+  console_io: {}
+  memory:     {}             # data_dir resolved above
+  ollama_provider:
+    timeout:  120
+  plugops_bridge:
+    # url: set via PLUGOPS_URL env var — bridge is disabled if unset
+    heartbeat_seconds:     60
+    reconnect_max_seconds: 60
+    capabilities:          []  # fill in during stamp: ["code", "debug", etc.]
+
+# Logging
+logging:
+  level:    "INFO"
+  log_file: ""               # empty = stderr only; set path to also write to file
+
+# API server (optional — enable if the agent exposes an HTTP interface)
+api:
+  enabled:  false
+  port:     5001
