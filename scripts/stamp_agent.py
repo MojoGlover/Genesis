@@ -251,16 +251,20 @@ def _copy_file(
         shutil.copy2(src, dst)
         return
 
-    # 1. Template variable substitution
+    # 1. main.py sys.path rewrite MUST happen before import rewriting
+    #    so the original "from BlackZero.loader import boot" text is still present.
+    if "rewrite_main" in extra_transforms:
+        content = _rewrite_main_py(content)
+
+    # 2. Template variable substitution
     content = _apply_substitutions(content, subs)
 
-    # 2. Python-specific rewrites
+    # 3. Python-specific import rewriting (after sys.path block is already fixed)
     if src.suffix == ".py":
         content = _rewrite_blackzero_imports(content)
 
-    # 3. File-specific rewrites
+    # 4. File-specific rewrites
     if "rewrite_main" in extra_transforms:
-        content = _rewrite_main_py(content)
         content = _rename_agent_config_class(content, name)
 
     if "rewrite_config_loader" in extra_transforms:

@@ -42,7 +42,7 @@ from BlackZero.tools.tool_registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 # Slot classification for merge behavior
-_SINGLETON_SLOTS = {"model_router", "memory_manager", "retriever", "policy_filter", "error_sink"}
+_SINGLETON_SLOTS = {"model_router", "memory_manager", "retriever", "policy_filter", "error_sink", "plugops_client"}
 _LIST_SLOTS = {"tools", "input_feed"}
 _DICT_SLOTS = {"sinks", "config_overrides"}
 _ALL_KNOWN = _SINGLETON_SLOTS | _LIST_SLOTS | _DICT_SLOTS
@@ -144,7 +144,71 @@ def _wire(config: dict, modules_dir: Optional[Path]) -> CognitiveLoop:
         f"sinks={list(router._output_sinks.keys())}"
     )
 
+    # 9. Wire module reload function into plugops bridge if present
+    plugops_client = slots.get("plugops_client")
+    if plugops_client and hasattr(plugops_client, "set_reload_fn"):
+        def _reload_module(module_name: str) -> dict:
+            return _reload_single_module(module_name, modules_dir, config, executor, router)
+        plugops_client.set_reload_fn(_reload_module)
+        logger.info("Boot: plugops bridge reload function wired")
+
     return loop
+
+
+def _reload_single_module(
+    module_name: str,
+    modules_dir: Path,
+    config: dict,
+    executor,
+    router,
+) -> dict:
+    """
+    Re-run a single module's setup() and wire new slots into the running brain.
+
+    Called by the plugops_bridge reload function after Cerberus activates a module.
+    Supports hot-wiring model_router, memory_manager, and output sinks without
+    restarting the full boot sequence.
+
+    Args:
+        module_name: Name of the module subdirectory under modules_dir.
+        modules_dir: Path to the modules directory.
+        config:      Current agent config dict.
+        executor:    Running Executor instance — receives model_router / memory_manager updates.
+        router:      Running Router instance — receives new sinks.
+
+    Returns:
+        The slot dict returned by the module's setup(), or {} on failure.
+
+    Raises:
+        FileNotFoundError: If the module directory or module.py does not exist.
+    """
+    if modules_dir is None:
+        raise FileNotFoundError(f"No modules_dir configured; cannot reload '{module_name}'")
+
+    module_file = modules_dir / module_name / "module.py"
+    if not module_file.exists():
+        raise FileNotFoundError(f"Module not found: {module_name}")
+
+    spec = importlib.util.spec_from_file_location(
+        f"modules.{module_name}.module", module_file
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    result = mod.setup(config)
+    if not isinstance(result, dict):
+        return {}
+
+    # Wire new slots into the running brain
+    if "model_router" in result:
+        executor._model_router = result["model_router"]
+    if "memory_manager" in result:
+        executor._memory_manager = result["memory_manager"]
+    for channel, sink in result.get("sinks", {}).items():
+        router.register_sink(channel, sink)
+
+    logger.info(f"Reloaded module: {module_name} → {list(result.keys())}")
+    return result
 
 
 def _discover_and_load(modules_dir: Path, config: dict) -> dict:
