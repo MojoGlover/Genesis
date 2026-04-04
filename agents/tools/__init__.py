@@ -12,6 +12,7 @@ from . import package_manager
 from . import workspace
 from . import web_tools
 from . import location_tools
+from . import github_tools
 
 # Export commonly used functions
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     'workspace',
     'web_tools',
     'location_tools',
+    'github_tools',
 ]
 
 
