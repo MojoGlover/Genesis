@@ -1,0 +1,21 @@
+agent:
+  name: teacher_0
+  designation: Teacher 0
+  role: TEACHER
+  autonomy_level: semi_autonomous
+  self_realized: false
+loop:
+  check_interval_seconds: 5
+  max_concurrent_tasks: 3
+  cycle_timeout_seconds: 60
+routing:
+  default: llama3.2:3b
+  fast: llama3.2:1b
+  code: codellama:7b
+capabilities:
+- curriculum_delivery
+- knowledge_indexing
+- assessment
+modules:
+- teacher
+data_dir: ~/.teacher_0

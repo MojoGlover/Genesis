@@ -1,0 +1,23 @@
+agent:
+  name: process_architect_0
+  designation: Process_Architect 0
+  role: PROCESS_ARCHITECT
+  autonomy_level: semi_autonomous
+  self_realized: false
+loop:
+  check_interval_seconds: 5
+  max_concurrent_tasks: 3
+  cycle_timeout_seconds: 60
+routing:
+  default: llama3.2:3b
+  fast: llama3.2:1b
+  code: codellama:7b
+capabilities:
+- workflow_design
+- process_optimization
+- agent_coordination
+- performance_evaluation
+modules:
+- system_logger
+- plugops_bridge
+data_dir: ~/.process_architect_0

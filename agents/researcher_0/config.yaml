@@ -1,0 +1,22 @@
+agent:
+  name: researcher_0
+  designation: Researcher 0
+  role: RESEARCHER
+  autonomy_level: semi_autonomous
+  self_realized: false
+loop:
+  check_interval_seconds: 5
+  max_concurrent_tasks: 3
+  cycle_timeout_seconds: 60
+routing:
+  default: llama3.2:3b
+  fast: llama3.2:1b
+  code: codellama:7b
+capabilities:
+- web_search
+- knowledge_synthesis
+- fact_checking
+modules:
+- teacher
+- system_logger
+data_dir: ~/.researcher_0

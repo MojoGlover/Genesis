@@ -84,6 +84,13 @@ ROLE_DEFAULTS = {
         "capabilities": ["communication", "relationship_management", "persona_adaptation"],
         "traits": ["empathetic", "professional", "adaptive", "discreet"],
     },
+    "PROCESS_ARCHITECT": {
+        "model_base": "llama3.2:3b",
+        "autonomy": AutonomyLevel.SEMI_AUTONOMOUS,
+        "capabilities": ["workflow_design", "process_optimization", "agent_coordination", "performance_evaluation"],
+        "traits": ["systematic", "analytical", "disciplined", "improvement-focused"],
+        "modules": ["system_logger", "plugops_bridge"],
+    },
 }
 
 
