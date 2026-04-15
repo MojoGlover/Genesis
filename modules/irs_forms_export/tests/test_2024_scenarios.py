@@ -242,10 +242,11 @@ class TestSECalculations(unittest.TestCase):
         self.assertAlmostEqual(tr.se_deduction, round(tr.se_tax * 0.50, 2), places=2)
 
     def test_qbi_deduction_20pct(self):
+        """QBI = Sched C net profit × 20% (Form 8995 Line 1 = Sched C Line 31).
+        SE deduction does NOT reduce QBI — it lives on Schedule 1, not Sched C."""
         data = amazon_flex_only_2024()
         tr = load_accountant_data(data)
-        qbi_base = max(tr.total_se_net - tr.se_deduction, 0)
-        expected_qbi = round(qbi_base * 0.20, 2)
+        expected_qbi = round(max(tr.total_se_net, 0) * 0.20, 2)
         self.assertAlmostEqual(tr.qbi_deduction, expected_qbi, places=1)
 
     def test_agi_includes_se_deduction(self):

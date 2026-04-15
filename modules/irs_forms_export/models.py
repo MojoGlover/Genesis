@@ -310,11 +310,28 @@ class TaxReturn(BaseModel):
 
     @property
     def total_se_net(self) -> float:
-        return sum(se.net_profit for se in self.self_employment)
+        """
+        Schedule C net profit after ALL business deductions including mileage.
+
+        Standard mileage goes on Schedule C Line 9 (car and truck expenses).
+        We store it in MileageRecord separately for tracking, but it MUST reduce
+        net profit before computing SE tax, QBI, and AGI.
+
+        Guard: only subtract mileage if car_and_truck is 0 across all SE schedules
+        to avoid double-counting when the user already included it in expenses.
+        """
+        base = sum(se.net_profit for se in self.self_employment)
+        if self.mileage and self.mileage.deduction_amount > 0:
+            car_truck_total = sum(se.expenses.car_and_truck for se in self.self_employment)
+            if car_truck_total == 0:
+                base = max(base - self.mileage.deduction_amount, 0)
+        return round(base, 2)
 
     @property
     def se_tax(self) -> float:
-        """Self-employment tax = 15.3% on 92.35% of net SE income."""
+        """Self-employment tax = 15.3% on 92.35% of net SE income.
+        Source: Schedule SE (2024) Lines 3-4: net × 0.9235 × 0.153
+        """
         net = max(self.total_se_net, 0)
         return round(net * 0.9235 * 0.153, 2)
 
@@ -337,7 +354,10 @@ class TaxReturn(BaseModel):
         }
         status = self.personal_info.filing_status.value
         threshold = thresholds.get(self.tax_year, thresholds[2024]).get(status, 191_950)
-        qbi = max(self.total_se_net - self.se_deduction, 0)
+        # Form 8995 Line 1: QBI = Schedule C net profit (after mileage, before SE deduction)
+        # Form 8995 Line 15: deduction = QBI × 20%
+        # Note: SE deduction does NOT reduce QBI base per Form 8995 instructions
+        qbi = max(self.total_se_net, 0)
         if self.agi <= threshold:
             return round(qbi * 0.20, 2)
         # Phaseout: simplified — above threshold QBI deduction may be limited
