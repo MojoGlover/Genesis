@@ -1,5 +1,5 @@
 agent:
-  name: teacher_0
+  name: teacher
   designation: Teacher 0
   role: TEACHER
   autonomy_level: semi_autonomous
@@ -18,4 +18,4 @@ capabilities:
 - assessment
 modules:
 - teacher
-data_dir: ~/.teacher_0
+data_dir: ~/.teacher

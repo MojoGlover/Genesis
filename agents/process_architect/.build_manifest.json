@@ -2,7 +2,7 @@
   "builder_version": "1.0.0",
   "forged_at": "2026-04-06T05:34:29.458417+00:00",
   "spec": {
-    "name": "process_architect_0",
+    "name": "process_architect",
     "designation": "Process_Architect 0",
     "role": "PROCESS_ARCHITECT",
     "autonomy_level": "semi_autonomous",

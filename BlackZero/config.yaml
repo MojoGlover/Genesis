@@ -45,6 +45,13 @@ modules:
     heartbeat_seconds:     60
     reconnect_max_seconds: 60
     capabilities:          []  # fill in during stamp: ["code", "debug", etc.]
+  memory_sync:
+    # primary_url: Cerberus on PlugZero — set via MEMORY_SYNC_URL env var
+    # backup_dir: auto-detects iCloud Drive; override via MEMORY_SYNC_DIR env var
+    # On Android/mobile: set MEMORY_SYNC_DIR to a Termux-accessible path
+    sync_interval_seconds: 300   # push every 5 minutes
+    tasks_limit:           100   # most recent N task files synced
+    enabled:               true  # disable per-agent if needed
 
 # Logging
 logging:

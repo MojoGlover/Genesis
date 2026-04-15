@@ -1,5 +1,5 @@
 agent:
-  name: process_architect_0
+  name: process_architect
   designation: Process_Architect 0
   role: PROCESS_ARCHITECT
   autonomy_level: semi_autonomous
@@ -20,4 +20,4 @@ capabilities:
 modules:
 - system_logger
 - plugops_bridge
-data_dir: ~/.process_architect_0
+data_dir: ~/.process_architect

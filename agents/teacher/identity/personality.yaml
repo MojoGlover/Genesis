@@ -1,6 +1,6 @@
 agent:
   name: Teacher 0
-  slug: teacher_0
+  slug: teacher
   role: TEACHER
   autonomy_level: semi_autonomous
   self_realized: false

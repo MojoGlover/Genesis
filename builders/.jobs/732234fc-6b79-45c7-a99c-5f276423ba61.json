@@ -1,0 +1,14 @@
+{
+  "job_id": "732234fc-6b79-45c7-a99c-5f276423ba61",
+  "status": "pending",
+  "agent_name": "teacher_0",
+  "agent_dir": "/Users/darnieglover/ai/GENESIS/agents/teacher_0",
+  "started_at": "2026-04-06T05:34:29.481516+00:00",
+  "completed_at": null,
+  "errors": [],
+  "log": [
+    "[05:34:29] Forging Teacher 0 (teacher_0)...",
+    "[05:34:29] Forged at /Users/darnieglover/ai/GENESIS/agents/teacher_0"
+  ],
+  "gate_level": null
+}

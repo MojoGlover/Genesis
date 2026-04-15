@@ -1,5 +1,5 @@
 agent:
-  name: researcher_0
+  name: researcher
   designation: Researcher 0
   role: RESEARCHER
   autonomy_level: semi_autonomous
@@ -19,4 +19,4 @@ capabilities:
 modules:
 - teacher
 - system_logger
-data_dir: ~/.researcher_0
+data_dir: ~/.researcher

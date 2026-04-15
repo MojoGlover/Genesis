@@ -1,6 +1,6 @@
 agent:
   name: Process_Architect 0
-  slug: process_architect_0
+  slug: process_architect
   role: PROCESS_ARCHITECT
   autonomy_level: semi_autonomous
   self_realized: false

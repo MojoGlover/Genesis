@@ -82,6 +82,9 @@ class PlugOpsClient:
         self._thread: threading.Thread | None = None
         self._consecutive_fails = 0
         self._registered_agents: list[str] = []
+        # PlugOps security: pending permission checks keyed by request_id
+        self._pending_permissions: dict[str, threading.Event] = {}
+        self._permission_results: dict[str, bool]             = {}
 
     # ── Connection management ─────────────────────────────────────────────────
 
@@ -217,6 +220,9 @@ class PlugOpsClient:
         except Exception:
             pass
 
+        # Request a security credential from Cerberus
+        self._request_credential()
+
     def _on_ws_message(self, ws, raw: str) -> None:
         try:
             msg = json.loads(raw)
@@ -248,6 +254,27 @@ class PlugOpsClient:
                     bytes.fromhex(cerberus_key)
                 )
                 logger.info("PlugOps: Cerberus key stored")
+
+        elif msg_type == "credential_issued":
+            token    = msg.get("token", "")
+            ttl_days = msg.get("ttl_days", 30)
+            scopes   = msg.get("scopes", [])
+            if token and self._credential_store:
+                self._credential_store.store_token(token, ttl_days=ttl_days, scopes=scopes)
+                logger.info(f"PlugOps: security token stored (ttl={ttl_days}d, scopes={scopes})")
+
+        elif msg_type == "credential_revoked":
+            if self._credential_store:
+                self._credential_store.clear_token()
+                logger.warning("PlugOps: credential revoked by Cerberus — token cleared")
+            # Re-request a credential immediately
+            self._request_credential()
+
+        elif msg_type in ("permission_granted", "permission_denied"):
+            rid = msg.get("request_id")
+            if rid and rid in self._pending_permissions:
+                self._permission_results[rid] = (msg_type == "permission_granted")
+                self._pending_permissions[rid].set()
 
         elif msg_type == "activate_module":
             self._handle_activation(msg)
@@ -299,6 +326,84 @@ class PlugOpsClient:
                 })
             except Exception as e:
                 logger.error(f"PlugOps: activation of {module_name} failed: {e}")
+
+    # ── PlugOps security protocol ─────────────────────────────────────────────
+
+    def _request_credential(self, scopes: list | None = None) -> None:
+        """Send a credential_request to Cerberus via PlugOps."""
+        self.send({
+            "type":     "credential_request",
+            "agent":    self._agent_name,
+            "agent_id": self._agent_name,
+            "scopes":   scopes or [],
+            "ts":       time.time(),
+        })
+        logger.info("PlugOps: credential request sent to Cerberus")
+
+    def check_permission(
+        self,
+        action: str,
+        timeout_seconds: int = 5,
+        fail_open: bool = False,
+    ) -> bool:
+        """
+        Ask Cerberus for permission to perform an action.
+        Blocks until granted/denied or timeout.
+
+        Args:
+            action:          Description of the action being requested.
+            timeout_seconds: How long to wait for a Cerberus response.
+            fail_open:       True = proceed if Cerberus doesn't respond.
+                             False (default) = deny on timeout (fail-closed).
+        Returns:
+            True if granted, False if denied or timed out (fail-closed).
+        """
+        import uuid
+
+        if not self._connected:
+            logger.warning("PlugOps: permission check skipped — not connected")
+            return fail_open
+
+        # Auto-refresh token if expiring within 3 days
+        if self._credential_store and self._credential_store.token_expiring_soon():
+            logger.info("PlugOps: token expiring soon — requesting refresh")
+            self._request_credential()
+            time.sleep(1)  # brief wait for credential_issued handler to update cache
+
+        token      = self._credential_store.get_token() if self._credential_store else ""
+        request_id = str(uuid.uuid4())[:8]
+        event      = threading.Event()
+
+        self._pending_permissions[request_id] = event
+        self._permission_results[request_id]  = False
+
+        self.send({
+            "type":       "permission_check",
+            "agent":      self._agent_name,
+            "agent_id":   self._agent_name,
+            "token":      token,
+            "action":     action,
+            "request_id": request_id,
+            "ts":         time.time(),
+        })
+
+        got_response = event.wait(timeout=timeout_seconds)
+
+        # Clean up pending state regardless of outcome
+        granted = self._permission_results.pop(request_id, False)
+        self._pending_permissions.pop(request_id, None)
+
+        if not got_response:
+            logger.warning(
+                f"PlugOps: permission check timed out for '{action}' after {timeout_seconds}s"
+                + (" — failing open" if fail_open else " — failing closed")
+            )
+            return fail_open
+
+        if not granted:
+            logger.warning(f"PlugOps: permission DENIED by Cerberus for '{action}'")
+
+        return granted
 
     def _on_error(self, ws, error) -> None:
         logger.warning(f"PlugOps WebSocket error: {error}")

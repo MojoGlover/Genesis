@@ -1,6 +1,6 @@
 agent:
   name: Researcher 0
-  slug: researcher_0
+  slug: researcher
   role: RESEARCHER
   autonomy_level: semi_autonomous
   self_realized: false
