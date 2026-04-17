@@ -6,14 +6,20 @@
 
 ## Current State (April 2026)
 
-BlackZero is a spec and a scaffold — not a runnable agent.
+BlackZero is **fully implemented and runnable.**
 
-Running `python main_agent.py` will fail immediately due to missing modules.
-The architecture is fully defined. The implementation is ~35% complete.
+Boot sequence verified:
+- ✅ Mission loads and parses
+- ✅ System prompt builds correctly
+- ✅ LangGraph compiles: `recall → think → respond`
+- ✅ Bootstrap check passes (LLM acknowledges mission)
+- ✅ Live graph invocation works (full recall → think → respond cycle)
+- ✅ Memory writes to SQLite and reads back
 
-**The working implementation of BlackZero is Engineer0.**
-Engineer0 is what this spec looks like when actually built.
-If you need a running agent, start there.
+To run: `./start.sh blackzero` or `python3 main_agent.py`
+
+Engineer0 is a stamped agent that was built from this template.
+BlackZero is now the canonical source again.
 
 ```
 Engineer0 repo: /Users/darnieglover/ai/cmptrblk/Engineer0
@@ -61,30 +67,27 @@ It builds on top of `engineer0:latest` — that must exist first.
 | Docker Compose | `docker-compose.yml` | ✅ Complete |
 | Agent stamping | `stamp.sh` | ✅ Complete |
 | Launch script | `start.sh` | ✅ Complete |
-| Acceptance tests | `test_agent.py` | ✅ Defined (blocked on missing code) |
+| Acceptance tests | `test_agent.py` | ✅ Defined — runs against live agent |
 | Policies | `policies/` | ✅ Complete |
+| MissionLoader | `agent/core/mission.py` | ✅ Complete |
+| LangGraph nodes | `agent/core/graph.py` | ✅ Complete — recall, think, respond |
+| Message handler | `agent/plugops/handler.py` | ✅ Complete |
+| PlugOps bridge | `agent/plugops/bridge.py` | ✅ Complete — heartbeat + reconnect |
+| API server | `agent/api/server.py` | ✅ Complete — /health + /api/chat |
+| SQLite memory | `agent/core/graph.py` | ✅ Inline — fetch + save |
+| Bootstrap check | `agent/core/mission.py` | ✅ Complete |
 
 ---
 
-## What's Missing
+## What Can Still Be Added
 
-These must be built before the agent runs.
-Reference Engineer0's implementations — they solve the same problems.
+These are enhancements — not blockers. BlackZero runs without them.
 
-| Missing Component | Where It Goes | What It Does | Engineer0 Equivalent |
-|-------------------|--------------|--------------|----------------------|
-| `MissionLoader` | `agent/core/mission.py` | Reads mission file, builds system prompt | `agent/core/graph.py` (inline) |
-| LangGraph nodes | `agent/core/nodes.py` | `recall()`, `think()`, `respond()` | `agent/core/graph.py` |
-| Message handler | `agent/plugops/handler.py` | Receives PlugOps messages, calls graph | `agent/plugops/bridge.py` |
-| Heartbeat loop | `agent/plugops/heartbeat.py` | Pings PlugOps every 10s | `agent/plugops/bridge.py` |
-| API routes | `agent/api/server.py` | `/health`, `/api/chat` | `agent/api/server.py` |
-| Memory store | `agent/memory/store.py` | SQLite read/write | `agent/core/graph.py` |
-| RAG retriever | `agent/memory/rag.py` | ChromaDB + embeddings | Not yet in Engineer0 |
-| Model router | `agent/models/router.py` | Routes to Ollama or fallback | `agent/core/graph.py` (inline) |
-| Bootstrap check | (in `main_agent.py`) | Sends mission to model, verifies response | Not yet in Engineer0 |
-
-The fastest path: copy Engineer0's `agent/` directory here and adapt it.
-The spec already matches what Engineer0 built.
+| Component | Location | What It Adds |
+|-----------|----------|--------------|
+| RAG retriever | `agent/memory/rag.py` | ChromaDB + embeddings for long-term semantic memory |
+| Model router | `agent/models/router.py` | Fallback to Anthropic/OpenAI if Ollama is down |
+| Self-test runner | `agent/core/diagnostics.py` | Automated module health checks on boot |
 
 ---
 
