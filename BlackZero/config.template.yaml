@@ -1,0 +1,44 @@
+# config.template.yaml
+# Used by stamp.sh to create new agents — do not run directly
+# stamp.sh replaces all {PLACEHOLDERS} when forging a new agent
+
+identity:
+  designation: "{AGENT_NAME}"
+  alias:        "{AGENT_ALIAS}"
+  role:         "{AGENT_ROLE}"
+  pronouns:     "they/them"
+  owner:        "Computer Black"
+
+data_dir: "~/.{agent_slug}"
+port: 5001
+
+models:
+  reasoning:  "{AGENT_MODEL}"
+  fast:       "{AGENT_MODEL}"
+  chat:       "{AGENT_MODEL}"
+  code:       "qwen2.5-coder:3b"
+  embedding:  "all-mpnet-base-v2"
+
+tools:
+  ollama_api: "http://127.0.0.1:11434"
+
+loop:
+  check_interval_seconds: 30
+  max_concurrent_tasks:   3
+  task_timeout_seconds:   300
+  max_retries:            3
+  retry_backoff_base:     2
+
+modules:
+  plugops_bridge:
+    heartbeat_seconds:     10
+    reconnect_max_seconds: 30
+    capabilities:          ["chat"]
+  memory_sync:
+    sync_interval_seconds: 300
+    tasks_limit:           100
+    enabled:               true
+
+logging:
+  level:    "INFO"
+  log_file: ""
