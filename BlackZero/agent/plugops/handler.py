@@ -58,6 +58,8 @@ class MessageHandler:
             logger.info(f"[handler] Responded in {elapsed_ms}ms")
 
             # Always send response to dashboard so it appears in the UI
+            await self.bridge.send_response(from_agent, response)
+            # Mirror to dashboard for monitoring
             await self.bridge.send_response("dashboard", response)
 
         except Exception as e:

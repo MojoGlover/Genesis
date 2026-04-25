@@ -1,64 +1,78 @@
-# config.yaml — Agent configuration template
-# Stamped from BlackZero at creation. Fill in identity section.
-# All other sections have working defaults.
+# config.yaml — BlackZero agent template
+# All stamp slots are replaced by stamp.py before use.
+# Stamp slots: {{AGENT_ID}}, {{AGENT_NAME}}, {{AGENT_ROLE}},
+#              {{AGENT_PORT}}, {{AGENT_MODEL}}, {{PLUGOPS_URL}}
 
 identity:
-  designation: "{AGENT_NAME}"        # full name, e.g. "Engineer0"
-  alias:        "{AGENT_ALIAS}"      # short name / display name, e.g. "Zero"
-  role:         "{AGENT_ROLE}"       # one-line role, e.g. "Development Supervisor"
-  pronouns:     "they/them"          # update as appropriate
+  id:           "{{AGENT_ID}}"
+  name:         "{{AGENT_NAME}}"
+  role:         "{{AGENT_ROLE}}"
   owner:        "Computer Black"
+  capabilities: ["chat"]
 
-# Persistent data storage
-# Overridden by DATA_DIR env var in Docker
-data_dir: "~/.{agent_slug}"          # e.g. ~/.engineer0 — stamp tool fills this in
+# Where the agent stores its persistent data
+data_dir: "~/.{{AGENT_ID}}"
 
-# Ollama model names
-# Primary model should be a Modelfile built on top of BlackZero base
-models:
-  reasoning:  "{agent_slug}:latest"  # e.g. engineer0:latest
-  fast:       "{agent_slug}:latest"
-  chat:       "{agent_slug}:latest"
-  code:       "qwen2.5-coder:3b"
-  embedding:  "all-mpnet-base-v2"
+# Primary model — routed through model_gateway
+model:
+  primary: "{{AGENT_MODEL}}"
 
-# Tool paths — local Mac defaults, unused in Docker
-tools:
-  ollama_api: "http://localhost:11434/api"   # override via OLLAMA_API_URL env var
-
-# Cognitive loop tuning
-loop:
-  check_interval_seconds: 30
-  max_concurrent_tasks:   3
-  task_timeout_seconds:   300
-  max_retries:            3
-  retry_backoff_base:     2
-
-# Per-module configuration
-modules:
-  console_io: {}
-  memory:     {}             # data_dir resolved above
-  ollama_provider:
-    timeout:  120
-  plugops_bridge:
-    # url: set via PLUGOPS_URL env var — bridge is disabled if unset
-    heartbeat_seconds:     60
-    reconnect_max_seconds: 60
-    capabilities:          []  # fill in during stamp: ["code", "debug", etc.]
-  memory_sync:
-    # primary_url: Cerberus on PlugZero — set via MEMORY_SYNC_URL env var
-    # backup_dir: auto-detects iCloud Drive; override via MEMORY_SYNC_DIR env var
-    # On Android/mobile: set MEMORY_SYNC_DIR to a Termux-accessible path
-    sync_interval_seconds: 300   # push every 5 minutes
-    tasks_limit:           100   # most recent N task files synced
-    enabled:               true  # disable per-agent if needed
-
-# Logging
-logging:
-  level:    "INFO"
-  log_file: ""               # empty = stderr only; set path to also write to file
-
-# API server (optional — enable if the agent exposes an HTTP interface)
+# HTTP API
 api:
-  enabled:  false
-  port:     5001
+  host: "0.0.0.0"
+  port: {{AGENT_PORT}}
+
+# PlugOps WebSocket bridge
+plugops:
+  url:                   "{{PLUGOPS_URL}}"
+  heartbeat_seconds:     10
+  reconnect_max_seconds: 30
+
+# Infrastructure module clients (ports 9100–9109)
+# All silent-fail — agent works even if a module is down.
+# Set enabled: false to skip a module entirely.
+modules:
+  base_url: "http://127.0.0.1"
+
+  communication:
+    port:    9100
+    enabled: true
+
+  registry:
+    port:    9101
+    enabled: true
+
+  mind_state:
+    port:    9102
+    enabled: true
+
+  supervisor:
+    port:    9103
+    enabled: true   # passive — supervisor watches us, nothing to call
+
+  policy_gate:
+    port:    9104
+    enabled: true
+
+  tool_bus:
+    port:    9105
+    enabled: true
+
+  ledger:
+    port:    9106
+    enabled: true
+
+  scheduler:
+    port:    9107
+    enabled: false  # opt-in — enable if agent needs scheduled jobs
+
+  observability:
+    port:    9108
+    enabled: true
+
+  model_gateway:
+    port:    9109
+    enabled: true
+
+logging:
+  level: "INFO"

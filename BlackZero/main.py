@@ -1,98 +1,158 @@
-#!/usr/bin/env python3
 """
-main.py — Agent entry point.
+main.py — BlackZero agent entry point.
 
-Stamped from BlackZero at creation. This file belongs to {AGENT_NAME}.
+Boot sequence:
+  1. Load config.yaml
+  2. Load mission file
+  3. Initialize module clients (obs, ledger, gateway, policy, registry, mind_state, …)
+  4. Register with registry module
+  5. Build LangGraph
+  6. Start HTTP API + PlugOps bridge concurrently
+  7. Push health beat — agent is live
 
-Usage:
-    python main.py                          # interactive mode
-    python main.py --once "do this thing"   # single cycle and exit
-    python main.py --health                 # run health check and exit
+Single entry point. No loader.py, no cognitive loop, no dual boot paths.
+LangGraph only.
+
+Stamp slots (replaced by stamp.py):
+  {{AGENT_ID}}    — machine-readable id  (e.g. "engineer0")
+  {{AGENT_NAME}}  — display name         (e.g. "Engineer0")
+  {{AGENT_PORT}}  — HTTP API port        (e.g. 5001)
+  {{AGENT_MODEL}} — primary Ollama model (e.g. "engineer0:latest")
+  {{PLUGOPS_URL}} — PlugOps websocket    (e.g. "ws://…/ws/engineer0")
 """
 from __future__ import annotations
 
-import argparse
+import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
-# Works both when run directly (stamped agent) and from GENESIS (BlackZero itself)
-_here = Path(__file__).resolve().parent
-sys.path.insert(0, str(_here))          # stamped agent: agent root on path
-sys.path.insert(0, str(_here.parent))   # BlackZero in GENESIS: GENESIS/ on path
-
-try:
-    from loader import boot             # stamped agent
-except ImportError:
-    from BlackZero.loader import boot   # running directly from GENESIS
+import yaml
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%H:%M:%S",
 )
-
 logger = logging.getLogger(__name__)
 
+AGENT_DIR    = Path(__file__).parent
+MISSIONS_DIR = AGENT_DIR / "missions"
 
-def run_health_check(loop) -> int:
-    """Run the built-in health check and print a structured report."""
+
+async def main() -> None:
+    # ── 1. Config ─────────────────────────────────────────────────────────────
+    config_path = AGENT_DIR / "config.yaml"
+    if not config_path.exists():
+        logger.error(f"config.yaml not found at {config_path}")
+        sys.exit(1)
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    agent_id   = os.environ.get("AGENT_ID") or config["identity"]["id"]
+    agent_name = config["identity"]["name"]
+    data_dir   = Path(config.get("data_dir", f"~/.{agent_id}")).expanduser()
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    log_level = config.get("logging", {}).get("level", "INFO")
+    logging.getLogger().setLevel(getattr(logging, log_level, logging.INFO))
+
+    logger.info(f"Starting {agent_name} (id={agent_id})")
+
+    # ── 2. Mission ────────────────────────────────────────────────────────────
+    from agent.core.mission import MissionLoader, MissionMissingError
+    from agent.core.state import AgentIdentity
+
+    loader = MissionLoader(MISSIONS_DIR)
     try:
-        from diagnostics.agent_health import AgentHealthCheck
-        executor = loop._executor
-        hc = AgentHealthCheck(
-            model_router=getattr(executor, "_model_router", None),
-            memory_manager=getattr(executor, "_memory_manager", None),
-            tool_registry=getattr(executor, "_tool_registry", None),
-        )
-        report = hc.check_all()
-        status = report["overall"]
-        print(f"\nHealth: {status}\n")
-        for sub in report["subsystems"]:
-            icon = "✓" if sub["status"] == "HEALTHY" else ("~" if sub["status"] == "DEGRADED" else "✗")
-            msg  = f"  {icon} {sub['name']}: {sub['status']}"
-            if sub["message"]:
-                msg += f" — {sub['message']}"
-            print(msg)
-        print()
-        return 0 if status == "HEALTHY" else 1
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return 2
+        mission = loader.load(agent_id)
+    except MissionMissingError as e:
+        logger.error(f"[mission] FATAL: {e}")
+        sys.exit(1)
 
+    identity = AgentIdentity(
+        name=agent_name,
+        alias=agent_id,
+        role=config["identity"].get("role", "Agent"),
+        owner=config["identity"].get("owner", "Computer Black"),
+        model=config.get("model", {}).get("primary", f"{agent_id}:latest"),
+        capabilities=config["identity"].get("capabilities", ["chat"]),
+    )
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Agent cognitive loop")
-    parser.add_argument("--once", nargs="+", metavar="PROMPT",
-                        help="Run one cognitive cycle with the given prompt and exit")
-    parser.add_argument("--health", action="store_true",
-                        help="Run health check and exit")
-    parser.add_argument("--config", default="config.yaml",
-                        help="Path to config.yaml (default: config.yaml)")
-    args = parser.parse_args()
+    system_prompt = loader.build_system_prompt(mission, identity)
 
-    config_path = str(_here / args.config)
-    modules_dir = str(_here / "modules")
+    # ── 3. Module clients ─────────────────────────────────────────────────────
+    from agent.modules import init_modules
+    mods = init_modules(config, agent_id)
+    logger.info(f"[modules] {mods.summary()}")
 
-    loop = boot(config_path, modules_dir)
+    # ── 4. Register with registry ─────────────────────────────────────────────
+    mods.registry.register(
+        agent_id=agent_id,
+        name=agent_name,
+        role=identity.role,
+        capabilities=identity.capabilities,
+        api_port=config.get("api", {}).get("port", 5001),
+    )
 
-    if args.health:
-        sys.exit(run_health_check(loop))
+    # ── 5. Build graph ────────────────────────────────────────────────────────
+    from agent.core.graph import build_graph
+    logger.info("[graph] Building LangGraph...")
+    graph = build_graph(config, system_prompt, data_dir, mods)
+    logger.info("[graph] Ready — recall → think ⇄ tool → respond")
 
-    if args.once:
-        prompt = " ".join(args.once)
-        result = loop.run_once(prompt)
-        print(f"\n[cycle {result['cycle_id']}] {result['outcome']} "
-              f"(score={result['score']:.2f}, {result['duration_ms']:.0f}ms)")
-        return
+    # ── 6. PlugOps bridge ─────────────────────────────────────────────────────
+    from agent.plugops.bridge import PlugOpsBridge
+    from agent.plugops.handler import MessageHandler
 
-    # Default: interactive loop
-    from config_loader import AgentConfig
-    cfg  = AgentConfig(_here / args.config)
-    name = cfg.designation or "Agent"
-    print(f"\n{name} online. Type to interact. Ctrl+C to stop.\n")
-    loop.run()
+    plugops_url = (
+        os.environ.get("PLUGOPS_URL")
+        or config.get("plugops", {}).get("url", "")
+        or f"ws://127.0.0.1:9000/ws/{agent_id}"
+    )
+
+    bridge = PlugOpsBridge(
+        url=plugops_url,
+        agent_id=agent_id,
+        agent_name=agent_name,
+        capabilities=identity.capabilities,
+        config=config.get("plugops", {}),
+        on_message_callback=None,
+    )
+
+    handler = MessageHandler(graph=graph, bridge=bridge,
+                             agent_name=agent_name, mission_context=system_prompt)
+    bridge.on_message_callback = handler.handle
+
+    # ── 7. HTTP API ───────────────────────────────────────────────────────────
+    from agent.api.server import app as api_app, init as init_api
+    import uvicorn
+
+    api_port = int(os.environ.get("AGENT_PORT") or config.get("api", {}).get("port", 5001))
+    init_api(agent_id, graph, system_prompt, data_dir, mods)
+
+    api_cfg    = uvicorn.Config(api_app, host="0.0.0.0", port=api_port, log_level="warning")
+    api_server = uvicorn.Server(api_cfg)
+
+    logger.info(f"[api] HTTP server starting on port {api_port}")
+
+    # ── 8. Health beat — we're live ───────────────────────────────────────────
+    mods.obs.beat(status="ok")
+    logger.info(f"{agent_name} ready.")
+
+    # ── Run bridge + API server concurrently ──────────────────────────────────
+    try:
+        await asyncio.gather(bridge.connect(), api_server.serve())
+    finally:
+        mods.obs.beat(status="offline")
+        mods.registry.deregister(agent_id)
+        logger.info(f"{agent_name} shut down.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Shutting down.")

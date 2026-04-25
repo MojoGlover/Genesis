@@ -1,280 +1,189 @@
 """
-graph.py — LangGraph ReAct state machine for Engineer0.
+graph.py — LangGraph ReAct state machine.
 
-Graph: recall -> think -> tool (loop) -> respond
+Graph: recall → think ⇄ tool → respond
 
-The think node calls the LLM. If it outputs a tool call JSON block,
-the tool node executes it and feeds the result back to think.
-This loops until the LLM produces a plain-text response (no tool call),
-or until max_iterations is hit.
+- recall:  fetch recent context from mind_state (local SQLite fallback if module down)
+- think:   call model_gateway for LLM inference; log cost to ledger + obs
+- tool:    policy check → execute tool; counter to obs
+- respond: save exchange to mind_state; health beat to obs
 
-Tool call format (LLM must output this):
+Tool call format (LLM must output this — and ONLY this in that turn):
     ```json
-    {"tool": "shell", "params": {"command": "ls"}}
+    {"tool": "<name>", "params": {…}}
     ```
 """
 from __future__ import annotations
 
 import logging
-import sqlite3
-import time
-import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, END
 
-from agent.core.state import AgentState
-from agent.tools.registry import TOOL_DOCS, build_executor, parse_tool_call
+from agent.tools.registry import build_executor, parse_tool_call
+
+if TYPE_CHECKING:
+    from agent.modules import Modules
 
 logger = logging.getLogger(__name__)
 
-# ── Database ──────────────────────────────────────────────────────────────────
-
-def _get_db(data_dir: Path) -> sqlite3.Connection:
-    data_dir.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(data_dir / "memory.db"))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS conversations (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            role       TEXT NOT NULL,
-            content    TEXT NOT NULL,
-            ts         TEXT NOT NULL
-        )
-    """)
-    conn.commit()
-    return conn
+MAX_TOOL_ITERATIONS = 20
 
 
-def _fetch_recent(data_dir: Path, session_id: str, limit: int = 6) -> list[str]:
-    try:
-        conn = _get_db(data_dir)
-        rows = conn.execute(
-            "SELECT role, content FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?",
-            (session_id, limit),
-        ).fetchall()
-        conn.close()
-        return [f"{role}: {content}" for role, content in reversed(rows)]
-    except Exception as e:
-        logger.warning(f"[memory] fetch failed: {e}")
-        return []
+# ── Node factories ─────────────────────────────────────────────────────────────
 
-
-def _save_exchange(data_dir: Path, session_id: str, human: str, assistant: str) -> None:
-    try:
-        conn = _get_db(data_dir)
-        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
-        conn.execute(
-            "INSERT INTO conversations (session_id, role, content, ts) VALUES (?, ?, ?, ?)",
-            (session_id, "human", human, ts),
-        )
-        conn.execute(
-            "INSERT INTO conversations (session_id, role, content, ts) VALUES (?, ?, ?, ?)",
-            (session_id, "assistant", assistant, ts),
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.warning(f"[memory] save failed: {e}")
-
-
-# ── Nodes ─────────────────────────────────────────────────────────────────────
-
-def make_recall_node(data_dir: Path):
+def make_recall_node(mods: "Modules"):
     def recall(state: dict) -> dict:
-        session_id = state.get("session_id") or str(uuid.uuid4())
-        recent = _fetch_recent(data_dir, session_id)
-        logger.debug(f"[recall] {len(recent)} memory entries")
-        return {
-            **state,
-            "session_id": session_id,
-            "memory_context": recent,
-            "tool_history": [],
-            "tool_iterations": 0,
-            "tool_call_pending": False,
-        }
+        session_id = state.get("session_id", "default")
+        if data_dir := state.get("_data_dir"):
+            mods.mind_state.set_fallback_dir(Path(data_dir))
+        memory = mods.mind_state.get_recent(session_id, limit=6)
+        return {**state, "memory_context": memory}
     return recall
 
 
-def make_think_node(llm: ChatOllama, mission_context: str):
+def make_think_node(mods: "Modules", system_prompt: str):
     def think(state: dict) -> dict:
-        iterations = state.get("tool_iterations", 0)
-        max_iter = state.get("max_iterations", 10)
+        message      = state.get("message", "")
+        memory       = state.get("memory_context", [])
         tool_history = state.get("tool_history", [])
-        memory = state.get("memory_context", [])
-        message = state.get("message", "")
+        iterations   = state.get("tool_iterations", 0)
 
-        # Guard against runaway loops
-        if iterations >= max_iter:
-            logger.warning(f"[think] Max iterations ({max_iter}) reached")
-            summary = "I reached the maximum number of tool calls. Here's what I accomplished:\n"
-            for entry in tool_history:
-                if entry["role"] == "tool_result":
-                    summary += f"\n- {entry['content'][:200]}"
-            return {**state, "response": summary, "tool_call_pending": False}
+        if iterations >= MAX_TOOL_ITERATIONS:
+            logger.warning(f"[think] max iterations ({MAX_TOOL_ITERATIONS}) reached")
+            return {**state,
+                    "response": "Reached tool call limit. Summary: " + state.get("response", ""),
+                    "tool_call_pending": False}
 
-        # Build message history for LLM
-        # System prompt = mission + tool docs
-        system = f"{mission_context}\n\n{TOOL_DOCS}"
-
-        # Human turn = memory context + current message
+        # Build messages for LLM
         if tool_history:
-            # We're mid-ReAct loop — pass accumulated history
-            human_parts = []
-            if memory and iterations == 0:
-                human_parts.append("Previous conversation:\n" + "\n".join(memory))
-            human_parts.append(f"Task: {message}")
-            for entry in tool_history:
-                role = entry["role"]
-                content = entry["content"]
-                if role == "assistant":
-                    human_parts.append(f"[You called a tool]: {content}")
-                elif role == "tool_result":
-                    human_parts.append(f"[Tool result]: {content}")
-            human_content = "\n\n".join(human_parts)
-        else:
-            # First turn
-            human_parts = []
+            parts = []
             if memory:
-                human_parts.append("Previous conversation:\n" + "\n".join(memory))
-            human_parts.append(f"Task: {message}")
-            human_content = "\n\n".join(human_parts)
+                parts.append("Previous conversation:\n" + "\n".join(memory))
+            parts.append(f"Task: {message}")
+            for e in tool_history:
+                if e["role"] == "assistant":
+                    parts.append(f"[You called a tool]: {e['content']}")
+                elif e["role"] == "tool_result":
+                    parts.append(f"[Tool result]: {e['content']}")
+            human_content = "\n\n".join(parts)
+        else:
+            parts = []
+            if memory:
+                parts.append("Previous conversation:\n" + "\n".join(memory))
+            parts.append(f"Task: {message}")
+            human_content = "\n\n".join(parts)
 
         messages = [
-            SystemMessage(content=system),
-            HumanMessage(content=human_content),
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": human_content},
         ]
 
         logger.debug(f"[think] LLM call #{iterations + 1}")
         try:
-            result = llm.invoke(messages)
-            response_text = result.content.strip()
+            result = mods.gateway.chat(messages, capability="chat")
         except Exception as e:
-            logger.error(f"[think] LLM call failed: {e}")
+            logger.error(f"[think] gateway error: {e}")
             return {**state, "response": f"LLM error: {e}", "tool_call_pending": False}
 
-        # Check if LLM wants to call a tool
+        response_text = result.get("content", "").strip()
+
+        # Cost tracking
+        mods.ledger.record_llm(
+            model_id      = result.get("model_id", "unknown"),
+            input_tokens  = result.get("input_tokens", 0),
+            output_tokens = result.get("output_tokens", 0),
+            cost_usd      = result.get("cost_usd", 0.0),
+        )
+        mods.obs.histogram("llm_latency_ms", result.get("latency_ms", 0))
+
         tool_call = parse_tool_call(response_text)
         if tool_call:
-            logger.info(f"[think] Tool call: {tool_call['tool']}({list(tool_call.get('params', {}).keys())})")
-            new_history = tool_history + [{"role": "assistant", "content": response_text}]
-            return {
-                **state,
-                "tool_history": new_history,
-                "tool_iterations": iterations + 1,
-                "tool_call_pending": True,
-                "response": response_text,  # holds the tool call JSON
-            }
-        else:
-            # Plain text response — we're done
-            return {
-                **state,
-                "response": response_text,
+            logger.info(f"[think] Tool call: {tool_call['tool']}")
+            return {**state,
+                    "tool_history": tool_history + [{"role": "assistant", "content": response_text}],
+                    "tool_iterations": iterations + 1,
+                    "tool_call_pending": True,
+                    "response": response_text}
+
+        return {**state, "response": response_text,
                 "tool_call_pending": False,
-                "tool_iterations": iterations + 1,
-            }
+                "tool_iterations": iterations + 1}
 
     return think
 
 
-def make_tool_node(execute_tool):
+def make_tool_node(execute_tool, mods: "Modules"):
     def tool(state: dict) -> dict:
-        response = state.get("response", "")
-        tool_history = state.get("tool_history", [])
-
-        tool_call = parse_tool_call(response)
+        tool_call = parse_tool_call(state.get("response", ""))
         if not tool_call:
-            logger.warning("[tool] No valid tool call found in response")
+            logger.warning("[tool] No valid tool call found")
             return {**state, "tool_call_pending": False}
 
         tool_name = tool_call.get("tool", "")
-        params = tool_call.get("params", {})
+        params    = tool_call.get("params", {})
 
-        logger.info(f"[tool] Executing: {tool_name}")
-        try:
-            result_str = execute_tool(tool_name, params)
-        except Exception as e:
-            result_str = f"Tool execution error: {e}"
-            logger.error(f"[tool] {e}")
+        if not mods.policy.allow(action="tool_call", resource=tool_name):
+            logger.warning(f"[tool] Policy denied: {tool_name}")
+            result_str = f"Policy denied: cannot execute '{tool_name}'"
+        else:
+            logger.info(f"[tool] Executing: {tool_name}")
+            try:
+                result_str = execute_tool(tool_name, params)
+            except Exception as e:
+                result_str = f"Tool error: {e}"
+                logger.error(f"[tool] {tool_name}: {e}")
 
-        # Truncate very long results
         if len(result_str) > 8000:
-            result_str = result_str[:8000] + "\n... (truncated)"
+            result_str = result_str[:8000] + "\n…(truncated)"
 
-        logger.debug(f"[tool] Result ({len(result_str)} chars)")
+        mods.obs.counter("tool_calls_total", labels={"tool": tool_name})
 
-        new_history = tool_history + [{"role": "tool_result", "content": result_str}]
-        return {
-            **state,
-            "tool_history": new_history,
-            "tool_call_pending": False,
-        }
+        return {**state,
+                "tool_history": state.get("tool_history", []) + [
+                    {"role": "tool_result", "content": result_str}
+                ],
+                "tool_call_pending": False}
 
     return tool
 
 
-def make_respond_node(data_dir: Path):
+def make_respond_node(mods: "Modules"):
     def respond(state: dict) -> dict:
-        _save_exchange(
-            data_dir,
+        mods.mind_state.save(
             state.get("session_id", "default"),
             state.get("message", ""),
             state.get("response", ""),
         )
-        logger.debug(f"[respond] Exchange saved — {state.get('tool_iterations', 0)} tool call(s)")
-        return {
-            **state,
-            "tool_history": [],
-            "tool_iterations": 0,
-            "tool_call_pending": False,
-        }
+        mods.obs.beat(status="ok")
+        return {**state, "tool_history": [], "tool_iterations": 0, "tool_call_pending": False}
     return respond
 
 
-# ── Routing ───────────────────────────────────────────────────────────────────
-
 def should_continue(state: dict) -> str:
-    """Route: if tool call pending → tool → think loop. Otherwise → respond."""
-    if state.get("tool_call_pending"):
-        return "tool"
-    return "respond"
+    return "tool" if state.get("tool_call_pending") else "respond"
 
 
-# ── Graph builder ─────────────────────────────────────────────────────────────
+# ── Graph builder ──────────────────────────────────────────────────────────────
 
-def build_graph(config: dict, mission_context: str, data_dir: Path):
-    """
-    Build and compile the Engineer0 ReAct graph.
-    Returns (compiled_graph, llm).
-    """
-    model_name = config.get("models", {}).get("chat", "engineer0:latest")
-    ollama_url = config.get("tools", {}).get("ollama_api", "http://localhost:11434")
-    base_url = ollama_url.rstrip("/api").rstrip("/")
-
-    llm = ChatOllama(model=model_name, base_url=base_url)
-    logger.info(f"[graph] LLM: {model_name} via {base_url}")
-
+def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules"):
+    """Build and compile the ReAct graph."""
     execute_tool = build_executor()
 
-    recall  = make_recall_node(data_dir)
-    think   = make_think_node(llm, mission_context)
-    tool    = make_tool_node(execute_tool)
-    respond = make_respond_node(data_dir)
-
     graph = StateGraph(dict)
-    graph.add_node("recall", recall)
-    graph.add_node("think", think)
-    graph.add_node("tool", tool)
-    graph.add_node("respond", respond)
+    graph.add_node("recall",  make_recall_node(mods))
+    graph.add_node("think",   make_think_node(mods, system_prompt))
+    graph.add_node("tool",    make_tool_node(execute_tool, mods))
+    graph.add_node("respond", make_respond_node(mods))
 
     graph.set_entry_point("recall")
     graph.add_edge("recall", "think")
-    graph.add_conditional_edges("think", should_continue, {"tool": "tool", "respond": "respond"})
-    graph.add_edge("tool", "think")  # tool result feeds back to think
+    graph.add_conditional_edges("think", should_continue,
+                                {"tool": "tool", "respond": "respond"})
+    graph.add_edge("tool", "think")
     graph.add_edge("respond", END)
 
     compiled = graph.compile()
-    logger.info("[graph] ReAct graph compiled: recall → think ⇄ tool → respond")
-    return compiled, llm
+    logger.info("[graph] Compiled: recall → think ⇄ tool → respond")
+    return compiled
