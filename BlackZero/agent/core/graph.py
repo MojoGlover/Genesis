@@ -1,27 +1,36 @@
 """
-graph.py — LangGraph ReAct state machine.
+graph.py — LangGraph ReAct state machine (BlackZero template).
 
 Graph: recall → think ⇄ tool → respond
 
-- recall:  fetch recent context from mind_state (local SQLite fallback if module down)
+- recall:  fetch recent context from mind_state (SQLite fallback if module down)
 - think:   call model_gateway for LLM inference; log cost to ledger + obs
-- tool:    policy check → execute tool; counter to obs
+- tool:    policy check → execute tool; counter to obs; malformed call repair
 - respond: save exchange to mind_state; health beat to obs
 
-Tool call format (LLM must output this — and ONLY this in that turn):
-    ```json
-    {"tool": "<name>", "params": {…}}
-    ```
+Anti-hallucination enforcement (applied to every stamped agent):
+  - Widened _requires_tool_use — catches creation/build/read tasks
+  - _detect_fabrication — catches responses that claim completed actions
+    without corresponding tool calls in history
+  - System prompt ANTI_HALLUCINATION_RULES injected on every think call
+  - Grounding enforcement blocks any action-task response that has no
+    real tool results behind it
+  - force_rethink routing for grounding corrections
+  - max_iterations configurable per-call via state
 """
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from langgraph.graph import StateGraph, END
+import sqlite3
 
-from agent.tools.registry import build_executor, parse_tool_call
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
+
+from agent.tools.registry import TOOL_DOCS, build_executor, parse_tool_call
 
 if TYPE_CHECKING:
     from agent.modules import Modules
@@ -30,16 +39,221 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 20
 
+# Injected into every system prompt — makes fabrication structurally prohibited
+ANTI_HALLUCINATION_RULES = """
+ABSOLUTE RULES — NEVER VIOLATE:
+1. You CANNOT describe doing things you have not done. Every action claim
+   (wrote a file, ran a command, restarted a service) MUST correspond to a
+   [Tool result] entry in the conversation above. If there is no [Tool result]
+   for it, it did not happen.
+2. When a task requires system interaction, output ONLY a tool call JSON block.
+   No prose before or after. No description of what you are about to do.
+3. You CANNOT fabricate tool output. Never write what a tool "would" return.
+   Only real [Tool result] entries count as evidence.
+4. If you have completed all required steps and have [Tool result] evidence,
+   you may write a plain-text summary. That summary must only reference things
+   that appear in [Tool result] entries.
+"""
+
+
+# ── Grounding helpers ──────────────────────────────────────────────────────────
+
+def _looks_like_tool_attempt(text: str) -> bool:
+    """Detect malformed tool-call attempts that should be repaired, not finalized."""
+    lowered = text.lower()
+    if '"tool"' in lowered or "'tool'" in lowered:
+        return True
+    if '"params"' in lowered or "'params'" in lowered:
+        return True
+    if "```json" in lowered and "tool" in lowered:
+        return True
+    return False
+
+
+def _requires_tool_use(message: str) -> bool:
+    """
+    True when the task cannot be completed without real system interaction.
+
+    Triggers for:
+    - Numbered step lists (multi-step task instructions)
+    - Explicit mutation verbs (patch, write, restart, deploy, install…)
+    - Creation tasks (build/create/make + artifact noun)
+    - Diagnostic tasks (debug, diagnose, broken, failing…)
+    - Explicit file paths in the message
+    - Read/check/verify requests on system state
+    """
+    lowered = message.lower()
+
+    # Numbered step lists — multi-step task instructions
+    question_frame = any(kw in lowered for kw in (
+        "which option", "which do you", "which would you", "which approach",
+        "choose one", "explain why", "give a reason", "give your reasoning",
+        "you have these options", "you have the following options",
+    ))
+    if not question_frame and re.search(r"^\s*\d+[\.\)]\s", message, re.MULTILINE):
+        return True
+
+    # Explicit mutation/execution verbs — cannot be faked
+    mutation_terms = (
+        "patch_file", "write_file", "patch ", "write ", "restart",
+        "execute", "deploy", "install", "launchctl", "git commit",
+        "git push", "git add", "apply the fix", "apply the patch",
+        "run the ", "run this", "scp ", "ssh ", "systemctl",
+    )
+    if any(term in lowered for term in mutation_terms):
+        return True
+
+    # Creation/build tasks — need tools to actually produce the artifact
+    creation_verbs = (
+        "build", "create", "make ", "generate", "implement",
+        "set up", "scaffold", "add the", "write a ", "write the ",
+        "wire up", "hook up",
+    )
+    artifact_nouns = (
+        "script", "file", "server", "module", "function", "class",
+        "endpoint", "service", "tool", "agent", "plist", "config",
+        "bridge", "handler", "test", "spec",
+    )
+    if any(v in lowered for v in creation_verbs) and any(a in lowered for a in artifact_nouns):
+        return True
+
+    # Read/check/verify — need actual data, not assumptions
+    read_terms = (
+        "check ", "verify ", "look at ", "read ", "what does ",
+        "what is in ", "show me ", "list ", "find ",
+    )
+    if any(term in lowered for term in read_terms):
+        if re.search(r"/[A-Za-z0-9_\-\.]+/[A-Za-z0-9_\-\./]+", message):
+            return True
+
+    # Diagnostic terms — require evidence
+    diagnostic_terms = (
+        "diagnose", "debug", "broken", "failure", "failing",
+        "unable to connect", "can't connect", "cannot connect",
+        "why is", "what's wrong", "whats wrong",
+    )
+    if any(term in lowered for term in diagnostic_terms):
+        return True
+
+    # Explicit file path in message — any path reference requires real I/O
+    if re.search(r"/[A-Za-z0-9_\-\.]+/[A-Za-z0-9_\-\./]+", message):
+        return True
+
+    return False
+
+
+def _has_grounding_result(tool_history: list[dict]) -> bool:
+    """True only after a real tool result — not a parser repair hint."""
+    repair_prefixes = (
+        "Tool call could not be parsed.",
+        "Malformed tool call.",
+        "STOP. You have not called any tools yet",
+        "FABRICATION DETECTED.",
+    )
+    for entry in tool_history:
+        if entry.get("role") != "tool_result":
+            continue
+        content = entry.get("content", "")
+        if not any(content.startswith(prefix) for prefix in repair_prefixes):
+            return True
+    return False
+
+
+def _tools_called(tool_history: list[dict]) -> set[str]:
+    """Return the set of tool names actually executed in this session."""
+    called = set()
+    for entry in tool_history:
+        if entry.get("role") == "assistant":
+            tc = parse_tool_call(entry.get("content", ""))
+            if tc:
+                called.add(tc.get("tool", ""))
+    return called
+
+
+def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
+    """
+    Returns a correction string if the response appears to fabricate tool results,
+    or None if the response looks legitimate.
+
+    Conservative — only flags clear-cut cases where the model claims a specific
+    action without any corresponding tool call in history.
+    """
+    lowered = response.lower()
+    called  = _tools_called(tool_history)
+    write_tools = {"write_file", "patch_file", "shell", "python"}
+    run_tools   = {"shell", "python"}
+
+    # Claimed file was written but no write/shell/python tool was ever called
+    write_claim_patterns = (
+        "i've written", "i have written", "i created the file",
+        "file has been written", "file has been created", "i wrote the",
+        "successfully written", "have been saved", "has been saved",
+        "written to disk",
+    )
+    if any(p in lowered for p in write_claim_patterns):
+        if not called.intersection(write_tools):
+            return (
+                "FABRICATION DETECTED. You claimed to have written a file, but no "
+                "write_file, patch_file, shell, or python tool was called. "
+                "You MUST call the appropriate tool to actually create or modify files. "
+                "Output a tool call JSON block now."
+            )
+
+    # Claimed command was run but no shell/python tool was called
+    run_claim_patterns = (
+        "i ran ", "i executed ", "i ran the", "command ran",
+        "command executed", "successfully ran", "i restarted",
+        "i deployed", "i installed", "i started ", "i stopped ",
+    )
+    if any(p in lowered for p in run_claim_patterns):
+        if not called.intersection(run_tools):
+            return (
+                "FABRICATION DETECTED. You claimed to have run a command, but no "
+                "shell or python tool was called. "
+                "You MUST call the shell tool to actually execute commands. "
+                "Output a tool call JSON block now."
+            )
+
+    # Claimed to have read a file but no read_file tool was called
+    read_claim_patterns = (
+        "i read the file", "i checked the file", "looking at the file",
+        "the file contains", "the file shows", "the contents of",
+    )
+    if any(p in lowered for p in read_claim_patterns):
+        if "read_file" not in called and "shell" not in called:
+            return (
+                "FABRICATION DETECTED. You claimed to have read a file, but no "
+                "read_file or shell tool was called. "
+                "You MUST call read_file to actually read a file. "
+                "Output a tool call JSON block now."
+            )
+
+    return None
+
 
 # ── Node factories ─────────────────────────────────────────────────────────────
 
 def make_recall_node(mods: "Modules"):
     def recall(state: dict) -> dict:
         session_id = state.get("session_id", "default")
+        message    = state.get("message", "")
         if data_dir := state.get("_data_dir"):
             mods.mind_state.set_fallback_dir(Path(data_dir))
-        memory = mods.mind_state.get_recent(session_id, limit=6)
-        return {**state, "memory_context": memory}
+
+        recent   = mods.mind_state.get_recent(session_id, limit=4)
+        semantic = mods.rag.search(message, k=3)
+
+        recent_set = set(recent)
+        merged = recent + [s for s in semantic if s not in recent_set]
+
+        return {
+            **state,
+            "memory_context":    merged,
+            "tool_history":      [],
+            "tool_iterations":   0,
+            "tool_call_pending": False,
+            "force_rethink":     False,
+        }
     return recall
 
 
@@ -49,17 +263,22 @@ def make_think_node(mods: "Modules", system_prompt: str):
         memory       = state.get("memory_context", [])
         tool_history = state.get("tool_history", [])
         iterations   = state.get("tool_iterations", 0)
+        max_iter     = state.get("max_iterations", MAX_TOOL_ITERATIONS)
 
-        if iterations >= MAX_TOOL_ITERATIONS:
-            logger.warning(f"[think] max iterations ({MAX_TOOL_ITERATIONS}) reached")
-            return {**state,
-                    "response": "Reached tool call limit. Summary: " + state.get("response", ""),
-                    "tool_call_pending": False}
+        if iterations >= max_iter:
+            logger.warning(f"[think] max iterations ({max_iter}) reached")
+            summary = "Reached tool call limit. Here is what I accomplished:\n"
+            for entry in tool_history:
+                if entry["role"] == "tool_result":
+                    summary += f"\n- {entry['content'][:200]}"
+            return {**state, "response": summary, "tool_call_pending": False}
 
-        # Build messages for LLM
+        # Anti-hallucination rules + tool docs injected into every system prompt
+        system = f"{system_prompt}\n\n{ANTI_HALLUCINATION_RULES}\n\n{TOOL_DOCS}"
+
         if tool_history:
             parts = []
-            if memory:
+            if memory and iterations == 0:
                 parts.append("Previous conversation:\n" + "\n".join(memory))
             parts.append(f"Task: {message}")
             for e in tool_history:
@@ -76,7 +295,7 @@ def make_think_node(mods: "Modules", system_prompt: str):
             human_content = "\n\n".join(parts)
 
         messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": system},
             {"role": "user",   "content": human_content},
         ]
 
@@ -89,7 +308,6 @@ def make_think_node(mods: "Modules", system_prompt: str):
 
         response_text = result.get("content", "").strip()
 
-        # Cost tracking
         mods.ledger.record_llm(
             model_id      = result.get("model_id", "unknown"),
             input_tokens  = result.get("input_tokens", 0),
@@ -98,18 +316,70 @@ def make_think_node(mods: "Modules", system_prompt: str):
         )
         mods.obs.histogram("llm_latency_ms", result.get("latency_ms", 0))
 
+        # ── Valid tool call ────────────────────────────────────────────────────
         tool_call = parse_tool_call(response_text)
         if tool_call:
-            logger.info(f"[think] Tool call: {tool_call['tool']}")
+            logger.info(f"[think] Tool call: {tool_call['tool']}({list(tool_call.get('params', {}).keys())})")
             return {**state,
-                    "tool_history": tool_history + [{"role": "assistant", "content": response_text}],
-                    "tool_iterations": iterations + 1,
+                    "tool_history":      tool_history + [{"role": "assistant", "content": response_text}],
+                    "tool_iterations":   iterations + 1,
                     "tool_call_pending": True,
-                    "response": response_text}
+                    "force_rethink":     False,
+                    "response":          response_text}
 
-        return {**state, "response": response_text,
+        # ── Malformed tool call — route to repair ──────────────────────────────
+        if _looks_like_tool_attempt(response_text):
+            logger.warning("[think] Malformed tool call — routing to repair")
+            return {**state,
+                    "tool_history":      tool_history + [{"role": "assistant", "content": response_text}],
+                    "tool_iterations":   iterations + 1,
+                    "tool_call_pending": True,
+                    "force_rethink":     False,
+                    "response":          response_text}
+
+        # ── Fabrication detection — catches false completion claims ────────────
+        fabrication_msg = _detect_fabrication(response_text, tool_history)
+        if fabrication_msg and iterations + 1 < max_iter:
+            logger.warning("[think] Fabrication detected — injecting correction")
+            return {**state,
+                    "tool_history": tool_history + [
+                        {"role": "assistant",  "content": response_text},
+                        {"role": "tool_result", "content": fabrication_msg},
+                    ],
+                    "tool_iterations":   iterations + 1,
+                    "tool_call_pending": False,
+                    "force_rethink":     True,
+                    "response":          ""}
+
+        # ── Grounding enforcement — action task with no real tool evidence ─────
+        if (_requires_tool_use(message) and
+                not _has_grounding_result(tool_history) and
+                iterations + 1 < max_iter):
+            logger.warning("[think] Action task answered without tool calls — forcing tool use")
+            first_action = message.strip().split("\n")[0][:120]
+            correction = (
+                f"STOP. You have not called any tools yet but this task requires real system actions.\n\n"
+                f"Do NOT summarize or describe what you would do. You MUST output a tool call JSON block RIGHT NOW.\n\n"
+                f"The task starts with: \"{first_action}\"\n\n"
+                f"Output ONLY a JSON block for the first tool call needed. No prose. No explanation. Just:\n"
+                f'```json\n{{"tool": "<tool_name>", "params": {{...}}}}\n```'
+            )
+            return {**state,
+                    "tool_history": tool_history + [
+                        {"role": "assistant",  "content": response_text},
+                        {"role": "tool_result", "content": correction},
+                    ],
+                    "tool_iterations":   iterations + 1,
+                    "tool_call_pending": False,
+                    "force_rethink":     True,
+                    "response":          ""}
+
+        # ── Plain text — done ──────────────────────────────────────────────────
+        return {**state,
+                "response":          response_text,
                 "tool_call_pending": False,
-                "tool_iterations": iterations + 1}
+                "tool_iterations":   iterations + 1,
+                "force_rethink":     False}
 
     return think
 
@@ -118,8 +388,16 @@ def make_tool_node(execute_tool, mods: "Modules"):
     def tool(state: dict) -> dict:
         tool_call = parse_tool_call(state.get("response", ""))
         if not tool_call:
-            logger.warning("[tool] No valid tool call found")
-            return {**state, "tool_call_pending": False}
+            logger.warning("[tool] No valid tool call — injecting repair hint")
+            repair = (
+                "Tool call could not be parsed. Return exactly one JSON object like "
+                '{"tool": "read_file", "params": {"path": "/path/to/file"}} with no prose.'
+            )
+            return {**state,
+                    "tool_history": state.get("tool_history", []) + [
+                        {"role": "tool_result", "content": repair}
+                    ],
+                    "tool_call_pending": False}
 
         tool_name = tool_call.get("tool", "")
         params    = tool_call.get("params", {})
@@ -151,24 +429,32 @@ def make_tool_node(execute_tool, mods: "Modules"):
 
 def make_respond_node(mods: "Modules"):
     def respond(state: dict) -> dict:
-        mods.mind_state.save(
-            state.get("session_id", "default"),
-            state.get("message", ""),
-            state.get("response", ""),
-        )
+        session_id = state.get("session_id", "default")
+        message    = state.get("message", "")
+        response   = state.get("response", "")
+        mods.mind_state.save(session_id, message, response)
+        mods.rag.index(session_id, message, response)
         mods.obs.beat(status="ok")
-        return {**state, "tool_history": [], "tool_iterations": 0, "tool_call_pending": False}
+        return {**state,
+                "tool_history":      [],
+                "tool_iterations":   0,
+                "tool_call_pending": False,
+                "force_rethink":     False}
     return respond
 
 
 def should_continue(state: dict) -> str:
-    return "tool" if state.get("tool_call_pending") else "respond"
+    if state.get("tool_call_pending"):
+        return "tool"
+    if state.get("force_rethink"):
+        return "think"
+    return "respond"
 
 
 # ── Graph builder ──────────────────────────────────────────────────────────────
 
 def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules"):
-    """Build and compile the ReAct graph."""
+    """Build and compile the BlackZero ReAct graph."""
     execute_tool = build_executor()
 
     graph = StateGraph(dict)
@@ -180,10 +466,15 @@ def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules
     graph.set_entry_point("recall")
     graph.add_edge("recall", "think")
     graph.add_conditional_edges("think", should_continue,
-                                {"tool": "tool", "respond": "respond"})
+                                {"tool": "tool", "think": "think", "respond": "respond"})
     graph.add_edge("tool", "think")
     graph.add_edge("respond", END)
 
-    compiled = graph.compile()
-    logger.info("[graph] Compiled: recall → think ⇄ tool → respond")
+    checkpoint_path = data_dir / "checkpoints.db"
+    conn = sqlite3.connect(str(checkpoint_path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    checkpointer = SqliteSaver(conn)
+
+    compiled = graph.compile(checkpointer=checkpointer)
+    logger.info(f"[graph] Compiled with checkpointer → {checkpoint_path}")
     return compiled
