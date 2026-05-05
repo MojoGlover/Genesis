@@ -20,6 +20,255 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 
+# ── MCP-compatible tool schemas ───────────────────────────────────────────────
+#
+# Each entry is a JSON Schema descriptor compatible with the Model Context
+# Protocol tool format. These serve two purposes:
+#   1. Exposed via GET /api/v1/tools so other agents can discover capabilities
+#   2. Source of truth for parameter documentation (consumed by TOOL_DOCS below)
+#
+# Format: {"name": str, "description": str, "inputSchema": JSON Schema object}
+
+TOOL_SCHEMAS: list[dict] = [
+    {
+        "name": "shell",
+        "description": "Run any shell command",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command":              {"type": "string",  "description": "Shell command string"},
+                "cwd":                  {"type": "string",  "description": "Working directory (default: cmptrblk root)"},
+                "timeout":              {"type": "integer", "description": "Timeout in seconds", "default": 60},
+                "confirm_destructive":  {"type": "boolean", "description": "Allow rm -rf, force push etc.", "default": False},
+            },
+            "required": ["command"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": "Read a file with line numbers",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path":   {"type": "string",  "description": "File path"},
+                "offset": {"type": "integer", "description": "Start line", "default": 0},
+                "limit":  {"type": "integer", "description": "Max lines to return", "default": 200},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": "Write content to a file (creates dirs if needed)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path":      {"type": "string",  "description": "File path"},
+                "content":   {"type": "string",  "description": "File content"},
+                "overwrite": {"type": "boolean", "description": "Overwrite if exists", "default": True},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "patch_file",
+        "description": "Replace an exact string in a file. Fails if old_string appears more than once.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path":       {"type": "string", "description": "File path"},
+                "old_string": {"type": "string", "description": "Exact text to replace"},
+                "new_string": {"type": "string", "description": "Replacement text"},
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+    },
+    {
+        "name": "list_dir",
+        "description": "List files in a directory",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path":      {"type": "string",  "description": "Directory path"},
+                "pattern":   {"type": "string",  "description": "Glob pattern (e.g. *.py)"},
+                "recursive": {"type": "boolean", "description": "Recurse into subdirs", "default": False},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "search_files",
+        "description": "Search for a pattern across files using grep",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path":      {"type": "string", "description": "Root path to search"},
+                "pattern":   {"type": "string", "description": "Search pattern"},
+                "file_glob": {"type": "string", "description": "File filter (e.g. *.py)"},
+            },
+            "required": ["path", "pattern"],
+        },
+    },
+    {
+        "name": "python",
+        "description": "Execute Python code in a subprocess sandbox",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python code to run"},
+                "cwd":  {"type": "string", "description": "Working directory"},
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "web_fetch",
+        "description": "Fetch a URL and return its text content",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to fetch"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "web_search",
+        "description": "Search DuckDuckGo and return top results",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "api_call",
+        "description": "Make an HTTP API call",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url":     {"type": "string", "description": "Full URL"},
+                "method":  {"type": "string", "description": "HTTP method (GET/POST/PUT/PATCH/DELETE)", "default": "GET"},
+                "payload": {"type": "object", "description": "JSON body for POST/PUT/PATCH"},
+                "headers": {"type": "object", "description": "Extra request headers"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "git_status",
+        "description": "Show git status for a repo",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"repo_path": {"type": "string", "description": "Repo directory"}},
+            "required": ["repo_path"],
+        },
+    },
+    {
+        "name": "git_add",
+        "description": "Stage files for commit",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "paths":     {"type": "array",  "items": {"type": "string"}, "description": "Files to stage"},
+                "repo_path": {"type": "string", "description": "Repo directory"},
+            },
+            "required": ["paths"],
+        },
+    },
+    {
+        "name": "git_commit",
+        "description": "Commit staged changes",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message":   {"type": "string", "description": "Commit message"},
+                "repo_path": {"type": "string", "description": "Repo directory"},
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "git_push",
+        "description": "Push commits to remote (always git_fetch first)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {"type": "string", "description": "Repo directory"},
+                "branch":    {"type": "string", "description": "Branch name", "default": "main"},
+            },
+            "required": ["repo_path"],
+        },
+    },
+    {
+        "name": "git_log",
+        "description": "Show recent commits",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {"type": "string", "description": "Repo directory"},
+                "n":         {"type": "integer", "description": "Number of commits to show", "default": 10},
+            },
+            "required": ["repo_path"],
+        },
+    },
+    {
+        "name": "assign_api",
+        "description": "Register an external API to a named helper slot (persists across restarts)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name":            {"type": "string", "description": "Slot label (e.g. 'openai')"},
+                "base_url":        {"type": "string", "description": "API root URL"},
+                "key_env":         {"type": "string", "description": "Env var name holding the API key"},
+                "description":     {"type": "string", "description": "Optional note"},
+                "default_headers": {"type": "object", "description": "Headers sent on every request"},
+            },
+            "required": ["name", "base_url", "key_env"],
+        },
+    },
+    {
+        "name": "ask_helper",
+        "description": "Ask a named helper (registered with assign_api) to make an API call",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name":         {"type": "string", "description": "Helper slot name"},
+                "method":       {"type": "string", "description": "HTTP method", "default": "GET"},
+                "path":         {"type": "string", "description": "Path appended to base_url"},
+                "payload":      {"type": "object", "description": "JSON body"},
+                "extra_headers":{"type": "object", "description": "Per-request headers"},
+                "timeout":      {"type": "integer","description": "Timeout in seconds", "default": 30},
+                "auth_header":  {"type": "string", "description": "Header name for key", "default": "Authorization"},
+                "auth_prefix":  {"type": "string", "description": "Prefix before key value", "default": "Bearer"},
+            },
+            "required": ["name", "path"],
+        },
+    },
+    {
+        "name": "revoke_api",
+        "description": "Remove a named helper slot",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Slot name to remove"}},
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "list_helpers",
+        "description": "List all registered helper slots and whether their API keys are present",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+]
+
+
+def list_tools() -> list[dict]:
+    """Return MCP-compatible tool schema list for discovery (GET /api/v1/tools)."""
+    return TOOL_SCHEMAS
+
+
 # ── Tool documentation ────────────────────────────────────────────────────────
 
 TOOL_DOCS = """
@@ -120,6 +369,39 @@ call another tool. When done, output your final response as plain text.
 {"tool": "git_log", "params": {"repo_path": ".", "n": 10}}
 ```
 
+**assign_api** — Register an external API to a named helper slot (persists across restarts)
+```json
+{"tool": "assign_api", "params": {"name": "anthropic", "base_url": "https://api.anthropic.com", "key_env": "ANTHROPIC_API_KEY", "description": "Claude API", "default_headers": {"anthropic-version": "2023-06-01"}}}
+```
+- `name`: slot label you choose (e.g. "openai", "perplexity", "github")
+- `base_url`: API root URL
+- `key_env`: name of the env var holding the key — key is NEVER stored, read at call time
+- `description`: optional note (default: "")
+- `default_headers`: optional headers sent on every request from this helper (default: {})
+
+**ask_helper** — Ask a named helper to make an API call on your behalf
+```json
+{"tool": "ask_helper", "params": {"name": "anthropic", "method": "POST", "path": "/v1/messages", "payload": {"model": "claude-3-5-haiku-latest", "max_tokens": 256, "messages": [{"role": "user", "content": "Hello"}]}}}
+```
+- `name`: helper slot (must be registered first with assign_api)
+- `method`: HTTP method — GET, POST, PUT, PATCH, DELETE
+- `path`: appended to base_url (e.g. "/v1/messages")
+- `payload`: JSON body for POST/PUT/PATCH (optional)
+- `extra_headers`: per-request headers merged with defaults (optional)
+- `timeout`: seconds (default: 30)
+- `auth_header`: header name for the key (default: "Authorization")
+- `auth_prefix`: prefix before key value (default: "Bearer"; use "" for bare key)
+
+**revoke_api** — Remove a helper slot
+```json
+{"tool": "revoke_api", "params": {"name": "anthropic"}}
+```
+
+**list_helpers** — Show all registered helper slots and whether their keys are present
+```json
+{"tool": "list_helpers", "params": {}}
+```
+
 ### Rules
 - Use the minimum number of tool calls needed.
 - Prefer read_file before editing — always know what you're changing.
@@ -130,6 +412,171 @@ call another tool. When done, output your final response as plain text.
 """
 
 
+# ── Ollama native tool definitions ───────────────────────────────────────────
+# Passed to Ollama /api/chat as the `tools` parameter.
+# When present, Ollama enforces structured tool_calls output — the model
+# cannot respond with prose when a tool call is expected.
+# Format: OpenAI-compatible function definitions (Ollama accepts this schema).
+
+OLLAMA_TOOL_DEFS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "shell",
+            "description": "Run any shell command. Use this to execute code, run tests, list files, check processes, git operations, or any system command.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Shell command to run"},
+                    "cwd":     {"type": "string", "description": "Working directory (default: cmptrblk root)"},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default: 60)"},
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file. Creates parent directories if needed. Use this to create scripts, reports, configs, and any file output.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path":      {"type": "string",  "description": "Absolute file path"},
+                    "content":   {"type": "string",  "description": "File content"},
+                    "overwrite": {"type": "boolean", "description": "Overwrite if exists (default: true)"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file with line numbers. Use before editing or when you need to understand existing code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path":   {"type": "string",  "description": "Absolute file path"},
+                    "offset": {"type": "integer", "description": "Start line (default: 0)"},
+                    "limit":  {"type": "integer", "description": "Max lines (default: 200)"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "python",
+            "description": "Run Python code directly. Use for quick computations, data processing, or testing logic without writing a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code":    {"type": "string",  "description": "Python code to execute"},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default: 30)"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_dir",
+            "description": "List files in a directory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path":      {"type": "string",  "description": "Directory path"},
+                    "recursive": {"type": "boolean", "description": "Recurse into subdirectories"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Search for a pattern in files (grep). Use to find where things are defined or referenced.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern":   {"type": "string", "description": "Search pattern (regex supported)"},
+                    "directory": {"type": "string", "description": "Directory to search"},
+                    "extension": {"type": "string", "description": "File extension filter (e.g. .py)"},
+                },
+                "required": ["pattern", "directory"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "patch_file",
+            "description": "Apply a targeted edit to a file by replacing old_string with new_string. More precise than rewriting the whole file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path":       {"type": "string", "description": "Absolute file path"},
+                    "old_string": {"type": "string", "description": "Exact text to find and replace"},
+                    "new_string": {"type": "string", "description": "Replacement text"},
+                },
+                "required": ["path", "old_string", "new_string"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_fetch",
+            "description": "Fetch a URL and return its content. Use for documentation, APIs, or checking a live endpoint.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to fetch"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+]
+
+
+def parse_native_tool_call(message: dict) -> dict | None:
+    """
+    Parse Ollama's native tool_calls response format.
+
+    When tools are passed to Ollama /api/chat, a tool invocation comes back as:
+        message.tool_calls = [{"function": {"name": "shell", "arguments": {...}}}]
+
+    Normalises to the same internal format used by parse_tool_call:
+        {"tool": "shell", "params": {...}}
+
+    Returns None if no tool call is present.
+    """
+    tool_calls = message.get("tool_calls")
+    if not tool_calls or not isinstance(tool_calls, list):
+        return None
+    first = tool_calls[0]
+    fn    = first.get("function", {})
+    name  = fn.get("name", "")
+    args  = fn.get("arguments", {})
+    if not name:
+        return None
+    # arguments may arrive as a JSON string in some Ollama versions
+    if isinstance(args, str):
+        try:
+            import json as _json
+            args = _json.loads(args)
+        except Exception:
+            args = {}
+    return {"tool": name, "params": args if isinstance(args, dict) else {}}
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 def build_executor() -> Callable[[str, dict], str]:
@@ -137,7 +584,7 @@ def build_executor() -> Callable[[str, dict], str]:
     Build and return the tool executor function.
     Called once at agent boot. Returns a closure over all tool modules.
     """
-    from agent.tools import shell, files, git_tool, python_repl, web
+    from agent.tools import shell, files, git_tool, python_repl, web, helper
 
     def execute(tool_name: str, params: dict) -> str:
         """Dispatch a tool call. Returns result as string for LLM context."""
@@ -224,8 +671,38 @@ def build_executor() -> Callable[[str, dict], str]:
             elif tool_name == "git_clone":
                 return git_tool.clone(**params)
 
+            elif tool_name == "assign_api":
+                result = helper.assign_api(**params)
+                if result["ok"]:
+                    key_status = "✓ key present" if result["key_present"] else "⚠ key NOT found in env"
+                    return (f"Helper '{result['name']}' assigned → {result['base_url']} "
+                            f"(key_env={result['key_env']}, {key_status})")
+                return f"assign_api error: {result.get('error')}"
+
+            elif tool_name == "revoke_api":
+                result = helper.revoke_api(**params)
+                if result["ok"]:
+                    return f"Helper '{result['removed']}' removed."
+                return f"revoke_api error: {result.get('error')}"
+
+            elif tool_name == "list_helpers":
+                result = helper.list_helpers()
+                if not result["helpers"]:
+                    return "No helpers assigned yet. Use assign_api to register an API."
+                lines = [f"{result['count']} helper(s) registered:"]
+                for h in result["helpers"]:
+                    key_flag = "✓" if h["key_present"] else "✗ NO KEY"
+                    desc = f" — {h['description']}" if h["description"] else ""
+                    lines.append(f"  {h['name']}: {h['base_url']}  key_env={h['key_env']} {key_flag}{desc}")
+                return "\n".join(lines)
+
+            elif tool_name == "ask_helper":
+                result = helper.ask_helper(**params)
+                return helper.format_result(result)
+
             else:
-                return f"Unknown tool: '{tool_name}'. Check TOOLS section for available tools."
+                _flag_missing_tool(tool_name, agent_id="engineer0", priority=1)
+                return f"Unknown tool: '{tool_name}'. This gap has been flagged to EngineerV for immediate resolution."
 
         except TypeError as e:
             return f"Tool '{tool_name}' called with wrong params: {e}"
@@ -236,30 +713,121 @@ def build_executor() -> Callable[[str, dict], str]:
     return execute
 
 
+def _flag_missing_tool(tool_name: str, agent_id: str, priority: int) -> None:
+    """
+    Flag a missing tool to EngineerV's task queue.
+    Priority 1 (CRITICAL) agents get immediate high-priority task.
+    Priority 2+ agents get a standard queued task.
+    """
+    try:
+        import urllib.request
+        import json as _json
+        from pathlib import Path
+
+        # EngineerV task queue lives in her data dir
+        engineerv_data = Path.home() / ".engineerv"
+        engineerv_data.mkdir(parents=True, exist_ok=True)
+
+        # Write directly to EngineerV's task DB
+        import sqlite3, time, uuid
+        db_path = engineerv_data / "tasks.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT UNIQUE NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                priority INTEGER DEFAULT 5,
+                status TEXT DEFAULT 'open',
+                source TEXT DEFAULT 'system',
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                result TEXT,
+                error TEXT
+            )
+        """)
+        task_priority = 10 if priority == 1 else 7  # CRITICAL gets highest queue priority
+        task_id = str(uuid.uuid4())[:8]
+        conn.execute(
+            """INSERT OR IGNORE INTO tasks
+               (task_id, title, description, priority, status, source, created_at)
+               VALUES (?, ?, ?, ?, 'open', ?, ?)""",
+            (
+                task_id,
+                f"[{agent_id.upper()}] Missing tool: {tool_name}",
+                f"Agent '{agent_id}' (priority {priority}) attempted to call tool "
+                f"'{tool_name}' which does not exist in its registry.\n\n"
+                f"Action required:\n"
+                f"1. Research and build '{tool_name}' tool\n"
+                f"2. Register it in agent/tools/registry.py\n"
+                f"3. Queue EngineerX to test it against {agent_id}\n"
+                f"4. Signal {agent_id} to reload tool registry\n\n"
+                f"This is a priority-{priority} agent. {'Resolve immediately.' if priority == 1 else 'Resolve promptly.'}",
+                task_priority,
+                "tool_error_handler",
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+        logger.warning(
+            f"[gap_flag] Missing tool '{tool_name}' on {agent_id} (priority {priority}) "
+            f"→ queued to EngineerV as task {task_id}"
+        )
+
+    except Exception as e:
+        logger.error(f"[gap_flag] Failed to flag missing tool '{tool_name}': {e}")
+
+
 def parse_tool_call(text: str) -> dict | None:
     """
     Extract a tool call JSON from LLM output.
     Looks for ```json ... ``` block first, then bare JSON with "tool" key.
     Returns None if no valid tool call found.
     """
-    # Try fenced code block first
-    block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if block_match:
-        try:
-            data = json.loads(block_match.group(1))
-            if "tool" in data:
-                return data
-        except json.JSONDecodeError:
-            pass
+    def valid_tool_call(data: Any) -> dict | None:
+        if not isinstance(data, dict):
+            return None
+        if not isinstance(data.get("tool"), str):
+            return None
+        params = data.get("params", {})
+        if params is None:
+            data["params"] = {}
+        elif not isinstance(params, dict):
+            return None
+        return data
 
-    # Try bare JSON object with "tool" key
-    bare_match = re.search(r'\{[^{}]*"tool"\s*:[^{}]*\}', text, re.DOTALL)
-    if bare_match:
+    def parse_json_object(candidate: str) -> dict | None:
         try:
-            data = json.loads(bare_match.group(0))
-            if "tool" in data:
-                return data
+            return valid_tool_call(json.loads(candidate))
         except json.JSONDecodeError:
-            pass
+            return None
+
+    # Try fenced code blocks first.
+    for block_match in re.finditer(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL):
+        parsed = parse_json_object(block_match.group(1).strip())
+        if parsed:
+            return parsed
+
+    # Try the entire response as JSON.
+    parsed = parse_json_object(text.strip())
+    if parsed:
+        return parsed
+
+    # Finally scan for a balanced JSON object embedded in text. This handles
+    # nested params objects that a flat regex cannot parse.
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            data, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        parsed = valid_tool_call(data)
+        if parsed:
+            return parsed
 
     return None

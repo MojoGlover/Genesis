@@ -1,5 +1,5 @@
 """
-graph.py — LangGraph ReAct state machine (BlackZero template).
+graph.py — LangGraph ReAct state machine for Engineer0.
 
 Graph: recall → think ⇄ tool → respond
 
@@ -8,13 +8,13 @@ Graph: recall → think ⇄ tool → respond
 - tool:    policy check → execute tool; counter to obs; malformed call repair
 - respond: save exchange to mind_state; health beat to obs
 
-Anti-hallucination enforcement (applied to every stamped agent):
+Engineer0-specific intelligence (beyond BlackZero base):
+  - TOOL_DOCS injected into every system prompt (she always has tools)
+  - ANTI_HALLUCINATION_RULES injected into every system prompt
   - Widened _requires_tool_use — catches creation/build/read tasks
-  - _detect_fabrication — catches responses that claim completed actions
-    without corresponding tool calls in history
-  - System prompt ANTI_HALLUCINATION_RULES injected on every think call
-  - Grounding enforcement blocks any action-task response that has no
-    real tool results behind it
+  - _detect_fabrication — catches false completion claims
+  - Malformed tool call detection and repair loop
+  - Grounding enforcement (forces tool use before answering action tasks)
   - force_rethink routing for grounding corrections
   - max_iterations configurable per-call via state
 """
@@ -30,7 +30,10 @@ import sqlite3
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from agent.tools.registry import TOOL_DOCS, build_executor, parse_tool_call
+from agent.tools.registry import (
+    TOOL_DOCS, OLLAMA_TOOL_DEFS, build_executor,
+    parse_tool_call, parse_native_tool_call,
+)
 
 if TYPE_CHECKING:
     from agent.modules import Modules
@@ -83,6 +86,10 @@ def _requires_tool_use(message: str) -> bool:
     - Read/check/verify requests on system state
     """
     lowered = message.lower()
+
+    # Todo-loop tasks always require tools — the loop prefixes them with this marker.
+    if lowered.startswith("execute this task now"):
+        return True
 
     # Numbered step lists — multi-step task instructions
     question_frame = any(kw in lowered for kw in (
@@ -188,15 +195,19 @@ def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
         "i've written", "i have written", "i created the file",
         "file has been written", "file has been created", "i wrote the",
         "successfully written", "have been saved", "has been saved",
-        "written to disk",
+        "written to disk", "i completed the task", "task complete",
+        "task is complete", "i have completed", "i've completed",
+        "all done", "the work is done", "here is the result",
+        "here are the results", "the file is ready", "the script is ready",
+        "the report is ready", "done:", "finished:",
     )
     if any(p in lowered for p in write_claim_patterns):
         if not called.intersection(write_tools):
             return (
-                "FABRICATION DETECTED. You claimed to have written a file, but no "
+                "FABRICATION DETECTED. You claimed the task is done or a file exists, but no "
                 "write_file, patch_file, shell, or python tool was called. "
-                "You MUST call the appropriate tool to actually create or modify files. "
-                "Output a tool call JSON block now."
+                "Nothing has actually been written or executed. "
+                "You MUST call the appropriate tool now. Output a tool call JSON block."
             )
 
     # Claimed command was run but no shell/python tool was called
@@ -204,11 +215,13 @@ def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
         "i ran ", "i executed ", "i ran the", "command ran",
         "command executed", "successfully ran", "i restarted",
         "i deployed", "i installed", "i started ", "i stopped ",
+        "the test passed", "tests pass", "test runs", "it works",
+        "the output is", "the result is", "running the",
     )
     if any(p in lowered for p in run_claim_patterns):
         if not called.intersection(run_tools):
             return (
-                "FABRICATION DETECTED. You claimed to have run a command, but no "
+                "FABRICATION DETECTED. You claimed a command ran or produced output, but no "
                 "shell or python tool was called. "
                 "You MUST call the shell tool to actually execute commands. "
                 "Output a tool call JSON block now."
@@ -218,6 +231,7 @@ def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
     read_claim_patterns = (
         "i read the file", "i checked the file", "looking at the file",
         "the file contains", "the file shows", "the contents of",
+        "i reviewed", "i examined", "i analyzed the",
     )
     if any(p in lowered for p in read_claim_patterns):
         if "read_file" not in called and "shell" not in called:
@@ -240,9 +254,13 @@ def make_recall_node(mods: "Modules"):
         if data_dir := state.get("_data_dir"):
             mods.mind_state.set_fallback_dir(Path(data_dir))
 
-        recent   = mods.mind_state.get_recent(session_id, limit=4)
+        # Recent turns (recency-based context)
+        recent = mods.mind_state.get_recent(session_id, limit=4)
+
+        # Semantic memory — find relevant past exchanges beyond the last 4 turns
         semantic = mods.rag.search(message, k=3)
 
+        # Merge: recent first, then semantic hits not already in recent
         recent_set = set(recent)
         merged = recent + [s for s in semantic if s not in recent_set]
 
@@ -253,6 +271,7 @@ def make_recall_node(mods: "Modules"):
             "tool_iterations":   0,
             "tool_call_pending": False,
             "force_rethink":     False,
+            "_tools_ran":        0,   # counts real tool executions (NOT cleared by respond)
         }
     return recall
 
@@ -267,7 +286,7 @@ def make_think_node(mods: "Modules", system_prompt: str):
 
         if iterations >= max_iter:
             logger.warning(f"[think] max iterations ({max_iter}) reached")
-            summary = "Reached tool call limit. Here is what I accomplished:\n"
+            summary = "Reached tool call limit. Here's what I accomplished:\n"
             for entry in tool_history:
                 if entry["role"] == "tool_result":
                     summary += f"\n- {entry['content'][:200]}"
@@ -299,15 +318,34 @@ def make_think_node(mods: "Modules", system_prompt: str):
             {"role": "user",   "content": human_content},
         ]
 
-        logger.debug(f"[think] LLM call #{iterations + 1}")
+        # Pick model tier based on task complexity.
+        # Tool execution iterations always use the fast/tools model (JSON format required).
+        # First-pass reasoning on heavy tasks routes to the larger model.
+        if iterations > 0 or tool_history:
+            task_type = "fast"
+        elif _requires_tool_use(message):
+            task_type = "reasoning"
+        else:
+            task_type = "chat"
+
+        # Pass Ollama native tool definitions when the task requires tool use.
+        # This switches Ollama from "hope the model outputs JSON" to enforced
+        # structured tool_calls output — the model cannot respond with prose
+        # when a tool call is expected.
+        use_native_tools = (task_type in ("reasoning", "fast", "code"))
+        tools_payload    = OLLAMA_TOOL_DEFS if use_native_tools else None
+
+        logger.debug(f"[think] LLM call #{iterations + 1} task_type={task_type} native_tools={use_native_tools}")
         try:
-            result = mods.gateway.chat(messages, capability="chat")
+            result = mods.gateway.chat_for(messages, task_type=task_type,
+                                           tools=tools_payload)
         except Exception as e:
             logger.error(f"[think] gateway error: {e}")
             return {**state, "response": f"LLM error: {e}", "tool_call_pending": False}
 
         response_text = result.get("content", "").strip()
 
+        # Cost + observability
         mods.ledger.record_llm(
             model_id      = result.get("model_id", "unknown"),
             input_tokens  = result.get("input_tokens", 0),
@@ -316,26 +354,21 @@ def make_think_node(mods: "Modules", system_prompt: str):
         )
         mods.obs.histogram("llm_latency_ms", result.get("latency_ms", 0))
 
-        # ── Valid tool call ────────────────────────────────────────────────────
-        tool_call = parse_tool_call(response_text)
+        # Check native tool_calls first (Ollama enforced format — no parsing needed),
+        # then fall back to text-based parse_tool_call for non-native responses.
+        tool_call = parse_native_tool_call(result) or parse_tool_call(response_text)
         if tool_call:
+            import json as _json
             logger.info(f"[think] Tool call: {tool_call['tool']}({list(tool_call.get('params', {}).keys())})")
+            # Normalise to text for tool_history regardless of whether the call
+            # came from native tool_calls or text parsing.
+            tool_call_text = response_text or _json.dumps({"tool": tool_call["tool"], "params": tool_call.get("params", {})})
             return {**state,
-                    "tool_history":      tool_history + [{"role": "assistant", "content": response_text}],
-                    "tool_iterations":   iterations + 1,
+                    "tool_history":     tool_history + [{"role": "assistant", "content": tool_call_text}],
+                    "tool_iterations":  iterations + 1,
                     "tool_call_pending": True,
-                    "force_rethink":     False,
-                    "response":          response_text}
-
-        # ── Malformed tool call — route to repair ──────────────────────────────
-        if _looks_like_tool_attempt(response_text):
-            logger.warning("[think] Malformed tool call — routing to repair")
-            return {**state,
-                    "tool_history":      tool_history + [{"role": "assistant", "content": response_text}],
-                    "tool_iterations":   iterations + 1,
-                    "tool_call_pending": True,
-                    "force_rethink":     False,
-                    "response":          response_text}
+                    "force_rethink":    False,
+                    "response":         tool_call_text}
 
         # ── Fabrication detection — catches false completion claims ────────────
         fabrication_msg = _detect_fabrication(response_text, tool_history)
@@ -351,11 +384,22 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     "force_rethink":     True,
                     "response":          ""}
 
-        # ── Grounding enforcement — action task with no real tool evidence ─────
+        # ── Malformed tool call — send back for repair ─────────────────────────
+        if _looks_like_tool_attempt(response_text):
+            logger.warning("[think] Malformed tool call — routing to repair")
+            return {**state,
+                    "tool_history":     tool_history + [{"role": "assistant", "content": response_text}],
+                    "tool_iterations":  iterations + 1,
+                    "tool_call_pending": True,
+                    "force_rethink":    False,
+                    "response":         response_text}
+
+        # Tool-use enforcement — any action or diagnostic task must use tools before responding
         if (_requires_tool_use(message) and
                 not _has_grounding_result(tool_history) and
                 iterations + 1 < max_iter):
-            logger.warning("[think] Action task answered without tool calls — forcing tool use")
+            logger.warning("[think] Action task answered without any tool calls — forcing tool use")
+            # Extract the first concrete action from the message to guide the next call
             first_action = message.strip().split("\n")[0][:120]
             correction = (
                 f"STOP. You have not called any tools yet but this task requires real system actions.\n\n"
@@ -369,24 +413,27 @@ def make_think_node(mods: "Modules", system_prompt: str):
                         {"role": "assistant",  "content": response_text},
                         {"role": "tool_result", "content": correction},
                     ],
-                    "tool_iterations":   iterations + 1,
+                    "tool_iterations":  iterations + 1,
                     "tool_call_pending": False,
-                    "force_rethink":     True,
-                    "response":          ""}
+                    "force_rethink":    True,
+                    "response":         ""}
 
-        # ── Plain text — done ──────────────────────────────────────────────────
+        # Plain text — done
         return {**state,
-                "response":          response_text,
+                "response":         response_text,
                 "tool_call_pending": False,
-                "tool_iterations":   iterations + 1,
-                "force_rethink":     False}
+                "tool_iterations":  iterations + 1,
+                "force_rethink":    False}
 
     return think
 
 
 def make_tool_node(execute_tool, mods: "Modules"):
     def tool(state: dict) -> dict:
-        tool_call = parse_tool_call(state.get("response", ""))
+        # Try native tool_calls format first (from gateway result stored in state),
+        # then fall back to text parsing from the response string.
+        tool_call = parse_native_tool_call(state.get("_last_result", {})) \
+                 or parse_tool_call(state.get("response", ""))
         if not tool_call:
             logger.warning("[tool] No valid tool call — injecting repair hint")
             repair = (
@@ -422,6 +469,7 @@ def make_tool_node(execute_tool, mods: "Modules"):
                 "tool_history": state.get("tool_history", []) + [
                     {"role": "tool_result", "content": result_str}
                 ],
+                "_tools_ran":        state.get("_tools_ran", 0) + 1,  # survives respond_node
                 "tool_call_pending": False}
 
     return tool
@@ -435,8 +483,10 @@ def make_respond_node(mods: "Modules"):
         mods.mind_state.save(session_id, message, response)
         mods.rag.index(session_id, message, response)
         mods.obs.beat(status="ok")
+        # NOTE: tool_history and _tools_ran are intentionally preserved in the
+        # returned state so that callers (todo_loop, task_loop) can verify that
+        # real tool execution happened before marking a task complete.
         return {**state,
-                "tool_history":      [],
                 "tool_iterations":   0,
                 "tool_call_pending": False,
                 "force_rethink":     False}
@@ -454,7 +504,7 @@ def should_continue(state: dict) -> str:
 # ── Graph builder ──────────────────────────────────────────────────────────────
 
 def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules"):
-    """Build and compile the BlackZero ReAct graph."""
+    """Build and compile the Engineer0 ReAct graph."""
     execute_tool = build_executor()
 
     graph = StateGraph(dict)
@@ -470,6 +520,8 @@ def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules
     graph.add_edge("tool", "think")
     graph.add_edge("respond", END)
 
+    # Persistent checkpointing — survives crashes, enables mid-task resume.
+    # WAL mode keeps writes non-blocking while reads continue.
     checkpoint_path = data_dir / "checkpoints.db"
     conn = sqlite3.connect(str(checkpoint_path), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
