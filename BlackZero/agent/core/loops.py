@@ -96,22 +96,32 @@ async def task_loop(graph, data_dir: Path, interval: int = 30) -> None:
                         config={"configurable": {"thread_id": f"task-{task_id}"}, "recursion_limit": 100},
                     ),
                 )
-                result      = state.get("response", "No response").strip()
-                tools_ran   = state.get("_tools_ran", 0)
-                has_marker  = result.upper().startswith("DONE:") or result.upper().startswith("FAILED:")
-                is_failure  = result.upper().startswith("FAILED:")
-                no_work     = not tools_ran and not has_marker
+                result     = state.get("response", "No response").strip()
+                tools_ran  = state.get("_tools_ran", 0)
+                is_failure = result.upper().startswith("FAILED:")
+                done_claim = result.upper().startswith("DONE:")
 
-                if no_work:
+                # Explicit FAILED: → accept as failure regardless of tool count.
+                # DONE: with zero tools → hallucination → force failure.
+                # No tools, no marker → prose without action → failure.
+                # Tools ran → accept result (DONE: or not).
+                if is_failure:
+                    mark_failed(data_dir, task_id, result)
+                    logger.info(f"[task_loop] Task {task_id} FAILED (explicit)")
+                elif done_claim and not tools_ran:
                     result = (
-                        f"FAILED: No tools were executed and no completion marker found. "
+                        f"FAILED: Model claimed DONE but ran zero tools — hallucinated completion. "
+                        f"Raw: {result[:300]}"
+                    )
+                    mark_failed(data_dir, task_id, result)
+                    logger.warning(f"[task_loop] Task {task_id} FAILED (DONE: with no tools)")
+                elif not tools_ran:
+                    result = (
+                        f"FAILED: No tools executed, no completion marker. "
                         f"Model described instead of acting. Raw: {result[:300]}"
                     )
                     mark_failed(data_dir, task_id, result)
                     logger.warning(f"[task_loop] Task {task_id} FAILED (no tool execution)")
-                elif is_failure:
-                    mark_failed(data_dir, task_id, result)
-                    logger.info(f"[task_loop] Task {task_id} FAILED (explicit)")
                 else:
                     mark_done(data_dir, task_id, result)
                     logger.info(f"[task_loop] Task {task_id} DONE")
@@ -314,12 +324,23 @@ async def todo_loop(
                 # through respond_node — unlike tool_history which used to be cleared.
                 # has_marker alone is NOT sufficient — a hallucinating model can output
                 # DONE: with zero tool calls.
-                tools_ran    = state.get("_tools_ran", 0)
-                has_marker   = result.upper().startswith("DONE:") or result.upper().startswith("FAILED:")
-                is_failure   = result.upper().startswith("FAILED:")
-                no_work_done = not tools_ran and not has_marker
+                tools_ran  = state.get("_tools_ran", 0)
+                is_failure = result.upper().startswith("FAILED:")
+                done_claim = result.upper().startswith("DONE:")
 
-                if no_work_done:
+                # Same logic as task_loop:
+                # DONE: with zero tools = hallucinated completion.
+                # No tools at all = prose-only = failure.
+                # FAILED: = accept explicitly.
+                # Tools ran = real work happened.
+                if not is_failure and done_claim and not tools_ran:
+                    logger.warning(
+                        f"[todo_loop] Task {item_text[:60]!r} claimed DONE with zero tool calls — "
+                        f"hallucinated completion."
+                    )
+                    result = f"FAILED: Model claimed DONE but ran zero tools. Raw: {result[:300]}"
+                    is_failure = True
+                elif not is_failure and not tools_ran:
                     logger.warning(
                         f"[todo_loop] Task {item_text[:60]!r} produced no tool calls and no "
                         f"completion marker — marking FAILED to prevent false completion."

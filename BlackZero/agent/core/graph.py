@@ -150,19 +150,34 @@ def _requires_tool_use(message: str) -> bool:
 
 
 def _has_grounding_result(tool_history: list[dict]) -> bool:
-    """True only after a real tool result — not a parser repair hint."""
+    """
+    True only after a real, successful tool result.
+    Excludes: parser repair hints, fabrication corrections, and tool errors.
+    A "Tool error: file not found" does NOT count as grounding — the model
+    still hasn't verified anything real.
+    """
     repair_prefixes = (
         "Tool call could not be parsed.",
         "Malformed tool call.",
         "STOP. You have not called any tools yet",
         "FABRICATION DETECTED.",
     )
+    error_prefixes = (
+        "Tool error:",
+        "Policy denied:",
+        "Unknown tool:",
+        "Error:",
+        "error:",
+    )
     for entry in tool_history:
         if entry.get("role") != "tool_result":
             continue
         content = entry.get("content", "")
-        if not any(content.startswith(prefix) for prefix in repair_prefixes):
-            return True
+        if any(content.startswith(prefix) for prefix in repair_prefixes):
+            continue
+        if any(content.startswith(prefix) for prefix in error_prefixes):
+            continue
+        return True
     return False
 
 
@@ -394,10 +409,13 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     "force_rethink":    False,
                     "response":         response_text}
 
-        # Tool-use enforcement — any action or diagnostic task must use tools before responding
+        # Tool-use enforcement — any action or diagnostic task must use tools before responding.
+        # NOTE: no max_iter escape hatch here. On the final iteration, if no real tool was
+        # called, we still inject the correction. The model will hit max_iter on the NEXT
+        # pass and get the iteration-limit summary — which is better than a hallucinated
+        # "completion" slipping through on the last allowed iteration.
         if (_requires_tool_use(message) and
-                not _has_grounding_result(tool_history) and
-                iterations + 1 < max_iter):
+                not _has_grounding_result(tool_history)):
             logger.warning("[think] Action task answered without any tool calls — forcing tool use")
             # Extract the first concrete action from the message to guide the next call
             first_action = message.strip().split("\n")[0][:120]
@@ -465,11 +483,21 @@ def make_tool_node(execute_tool, mods: "Modules"):
 
         mods.obs.counter("tool_calls_total", labels={"tool": tool_name})
 
+        # Only increment _tools_ran for real tool executions — not for unknown
+        # tools, policy denials, or tool errors. An unknown/errored tool still
+        # goes into tool_history so the model can see the failure, but it does
+        # NOT count as evidence that real work was done.
+        real_execution = not (
+            result_str.startswith("Unknown tool:") or
+            result_str.startswith("Policy denied:") or
+            result_str.startswith("Tool error:")
+        )
+
         return {**state,
                 "tool_history": state.get("tool_history", []) + [
                     {"role": "tool_result", "content": result_str}
                 ],
-                "_tools_ran":        state.get("_tools_ran", 0) + 1,  # survives respond_node
+                "_tools_ran":        state.get("_tools_ran", 0) + (1 if real_execution else 0),
                 "tool_call_pending": False}
 
     return tool
