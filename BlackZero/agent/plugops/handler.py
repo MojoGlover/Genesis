@@ -6,6 +6,7 @@ sends the response back via bridge.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -14,6 +15,8 @@ from agent.core.state import AgentState
 from agent.plugops.bridge import PlugOpsBridge
 
 logger = logging.getLogger(__name__)
+
+HANDLER_TIMEOUT = 170  # seconds — must be < server.py CHAT_TIMEOUT (180) to avoid orphaned requests
 
 
 class MessageHandler:
@@ -29,6 +32,7 @@ class MessageHandler:
         content    = inner.get("content", "").strip()
         from_agent = inner.get("from_agent", raw_message.get("from_agent", "unknown"))
         session_id = inner.get("session_id", raw_message.get("session_id", str(uuid.uuid4())))
+        request_id = inner.get("request_id", raw_message.get("request_id", ""))
 
         if not content:
             logger.warning(f"[handler] Empty message from {from_agent} — ignored")
@@ -48,23 +52,28 @@ class MessageHandler:
                 "error":           None,
             }
 
-            result = self.graph.invoke(state)
+            loop   = asyncio.get_running_loop()
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self.graph.invoke(state, config={"configurable": {"thread_id": session_id}, "recursion_limit": 100}),
+                ),
+                timeout=HANDLER_TIMEOUT,
+            )
             response = result.get("response", "").strip()
 
             if not response:
-                response = f"I received your message but had no response to generate."
+                response = "I received your message but had no response to generate."
 
             elapsed_ms = int((time.time() - start) * 1000)
             logger.info(f"[handler] Responded in {elapsed_ms}ms")
 
-            # Always send response to dashboard so it appears in the UI
-            await self.bridge.send_response(from_agent, response)
-            # Mirror to dashboard for monitoring
+            await self.bridge.send_response(from_agent, response, request_id=request_id)
             await self.bridge.send_response("dashboard", response)
 
+        except asyncio.TimeoutError:
+            logger.error(f"[handler] Timed out after {HANDLER_TIMEOUT}s processing message from {from_agent}")
+            await self.bridge.send_response(from_agent, f"Request timed out after {HANDLER_TIMEOUT}s.")
         except Exception as e:
             logger.error(f"[handler] Error processing message: {e}")
-            await self.bridge.send_response(
-                from_agent,
-                f"I encountered an error: {e}"
-            )
+            await self.bridge.send_response(from_agent, f"I encountered an error: {e}")

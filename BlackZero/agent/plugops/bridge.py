@@ -52,11 +52,15 @@ class PlugOpsBridge:
         self.agent_name          = agent_name
         self.capabilities        = capabilities
         self.on_message_callback = on_message_callback
-        self._heartbeat_secs     = cfg.get("heartbeat_seconds", 25)
+        self._heartbeat_secs     = cfg.get("heartbeat_seconds", 10)
         self._backoff_max        = cfg.get("reconnect_max_seconds", 30)
+        # If PlugOps goes silent, reconnect after this many seconds with no event.
+        # PlugOps must send keepalive SSE comments (": keepalive") at a shorter interval.
+        self._sse_read_timeout   = cfg.get("sse_read_timeout_seconds", 90)
         self._should_run         = True
         self._connected          = False
         self._client: httpx.AsyncClient | None = None
+        self._sse_client: httpx.AsyncClient | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -66,9 +70,12 @@ class PlugOpsBridge:
 
     async def connect(self) -> None:
         """Register, then run heartbeat + SSE inbox loops forever."""
-        # Short timeout for regular requests; None read timeout for SSE stream
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+            timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+        )
+        # Separate client for SSE: read timeout triggers reconnect if PlugOps goes silent.
+        self._sse_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=self._sse_read_timeout, write=10.0, pool=10.0)
         )
         try:
             await self._register()
@@ -78,6 +85,7 @@ class PlugOpsBridge:
             )
         finally:
             await self._client.aclose()
+            await self._sse_client.aclose()
 
     async def stop(self) -> None:
         self._should_run = False
@@ -158,21 +166,26 @@ class PlugOpsBridge:
                 logger.warning(f"[bridge] heartbeat failed: {e!r}")
 
     async def _inbox_loop(self) -> None:
-        """SSE inbox — auto-reconnects on any error."""
-        assert self._client is not None
+        """SSE inbox — auto-reconnects on any error or read timeout."""
+        assert self._sse_client is not None
         backoff = 1
+        last_event_id: str = ""
         while self._should_run:
             try:
+                headers = {"Last-Event-ID": last_event_id} if last_event_id else {}
                 async with aconnect_sse(
-                    self._client,
+                    self._sse_client,
                     "GET",
                     f"{self.base_url}/api/v1/sse/inbox/{self.agent_id}",
+                    headers=headers,
                 ) as es:
                     self._connected = True
                     backoff = 1
                     async for sse in es.aiter_sse():
                         if not self._should_run:
                             return
+                        if sse.id:
+                            last_event_id = sse.id
                         if sse.event != "message":
                             continue
                         try:
@@ -180,10 +193,13 @@ class PlugOpsBridge:
                             inner = msg.get("payload", msg)
                             await self._dispatch(inner)
                         except Exception as e:
-                            logger.warning(f"[bridge] dispatch error: {e!r}")
+                            logger.warning(f"[bridge] dispatch error: {e!r} data={sse.data[:120]!r}")
             except Exception as e:
                 self._connected = False
-                logger.warning(f"[bridge] inbox error: {e!r} — reconnecting in {backoff}s")
+                logger.warning(
+                    f"[bridge] inbox error: {e!r} last_event_id={last_event_id!r} "
+                    f"— reconnecting in {backoff}s"
+                )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, self._backoff_max)
                 await self._register()

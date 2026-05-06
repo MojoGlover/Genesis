@@ -19,6 +19,8 @@ _DESTRUCTIVE_PATTERNS = [
     "drop table", "drop database",
     "mkfs", "dd if=",
     ":(){:|:&};:",
+    # Command substitution — blocks injection via $(cmd) and `cmd`
+    "$(", "`",
 ]
 
 # Default cwd: agent's root directory (set at boot, configurable via env)
