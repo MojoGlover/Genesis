@@ -388,6 +388,7 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     "tool_iterations":  iterations + 1,
                     "tool_call_pending": True,
                     "force_rethink":    False,
+                    "_last_result":     result,   # persist so tool_node can read native tool_calls
                     "response":         tool_call_text}
 
         # ── Fabrication detection — catches false completion claims ────────────
@@ -441,12 +442,13 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     "force_rethink":    True,
                     "response":         ""}
 
-        # Plain text — done
+        # Plain text — done; clear _last_result so stale native tool calls don't replay
         return {**state,
                 "response":         response_text,
                 "tool_call_pending": False,
                 "tool_iterations":  iterations + 1,
-                "force_rethink":    False}
+                "force_rethink":    False,
+                "_last_result":     {}}
 
     return think
 
@@ -467,7 +469,9 @@ def make_tool_node(execute_tool, mods: "Modules"):
                     "tool_history": state.get("tool_history", []) + [
                         {"role": "tool_result", "content": repair}
                     ],
-                    "tool_call_pending": False}
+                    "tool_call_pending": False,
+                    "force_rethink":     True,   # route back to think so repair hint fires
+                    "_last_result":      {}}
 
         tool_name = tool_call.get("tool", "")
         params    = tool_call.get("params", {})
