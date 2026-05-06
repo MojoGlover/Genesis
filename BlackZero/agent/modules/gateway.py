@@ -51,6 +51,8 @@ class GatewayClient:
         cloud_fallback_model: str = "",
         cloud_provider: str = "ollama",   # "ollama" | "anthropic" | "openai"
         cloud_model: str = "",            # model id for cloud primary
+        task_ollama: str = "",            # plugwan Ollama URL for async task execution
+        task_model: str = "",             # model to use for tasks (e.g. phi4:14b)
         model_map: dict | None = None,
     ) -> None:
         self.agent_id             = agent_id
@@ -60,8 +62,10 @@ class GatewayClient:
         self.fallback_ollama      = fallback_ollama
         self.fallback_model       = fallback_model or model
         self.cloud_fallback_model = cloud_fallback_model
-        self.cloud_provider       = cloud_provider.lower()   # "anthropic" | "openai" | "ollama"
+        self.cloud_provider       = cloud_provider.lower()
         self.cloud_model          = cloud_model
+        self.task_ollama          = task_ollama   # e.g. http://100.113.209.66:11434
+        self.task_model           = task_model    # e.g. phi4:14b
         self._model_map: dict[str, str] = model_map or {}
 
     @property
@@ -74,6 +78,25 @@ class GatewayClient:
 
     def _model_for(self, task_type: str) -> str:
         return self._model_map.get(task_type, self.model)
+
+    def task_chat(self, messages: list[dict], max_tokens: int = 4096,
+                  timeout: float = _FALLBACK_TIMEOUT) -> dict:
+        """
+        Route a long-running task to plugwan Ollama (strong local model).
+        Falls back to cloud primary if plugwan is unreachable.
+        Use this from the task loop — not for real-time conversation.
+        """
+        if self.task_ollama and self.task_model:
+            try:
+                return self._ollama_chat_at(
+                    self.task_ollama, self.task_model,
+                    messages, max_tokens, timeout
+                )
+            except GatewayError as e:
+                logger.warning(f"[gateway] task Ollama failed: {e} — falling back to cloud")
+        # fallback: use normal chat path
+        return self.chat(messages, capability="reasoning",
+                         max_tokens=max_tokens, timeout=timeout)
 
     def chat_for(self, messages: list[dict], task_type: str = "chat",
                  max_tokens: int = 2048, timeout: float = _FALLBACK_TIMEOUT,
@@ -212,6 +235,34 @@ class GatewayClient:
             }
         except Exception as e:
             raise GatewayError(f"openai failed: {e}") from e
+
+    def _ollama_chat_at(self, base_url: str, model: str, messages: list[dict],
+                        max_tokens: int, timeout: float) -> dict:
+        """Ollama call to an arbitrary URL/model — used for task routing."""
+        t0 = time.time()
+        try:
+            r = httpx.post(
+                f"{base_url}/api/chat",
+                json={"model": model, "messages": messages,
+                      "options": {"num_predict": max_tokens}, "stream": False},
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            data    = r.json()
+            content = data.get("message", {}).get("content", "")
+            return {
+                "ok":            True,
+                "model_id":      model,
+                "backend":       f"ollama-task:{base_url}",
+                "content":       content,
+                "tool_calls":    None,
+                "input_tokens":  len(str(messages)) // 4,
+                "output_tokens": len(content) // 4,
+                "cost_usd":      0.0,
+                "latency_ms":    round((time.time() - t0) * 1000, 1),
+            }
+        except Exception as e:
+            raise GatewayError(f"task ollama at {base_url} failed: {e}") from e
 
     def _ollama_chat(self, messages: list[dict], max_tokens: int,
                      timeout: float, tools: list[dict] | None = None) -> dict:
