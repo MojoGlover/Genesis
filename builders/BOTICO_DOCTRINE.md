@@ -1,4 +1,18 @@
+> **Canonical location has moved to `Botico/governance/BOTICO_DOCTRINE.md`.**
+> This copy remains here so GENESIS/builders references still resolve, but the
+> authoritative version is in governance. Keep them in sync.
+
 # Botico Doctrine — Point of No Return
+
+## Governance
+
+**Owner: Darnie Glover.**
+
+This document defines the rules for what it means to exist inside Botico. No agent — including Engineer0 and Process Architect — may change, add to, or reinterpret these rules unilaterally. If you believe a rule needs to change or something is missing, you bring it to Darnie and you discuss it together. He decides. Then it gets written here.
+
+Reading this document is encouraged. Acting on it without discussion is not.
+
+---
 
 ## The Principle
 

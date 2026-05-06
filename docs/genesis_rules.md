@@ -1,13 +1,23 @@
-GENESIS ORGANIZATION RULES (OFFICIAL LOCKED VERSION) v1.1
+GENESIS ORGANIZATION RULES
+(OFFICIAL LOCKED VERSION)
+v1.2
 
+------------------------------------------------------------
 PRIME RULE
+------------------------------------------------------------
 
 If it does not clearly belong in the official structure, it goes into pending/.
-This one rule governs all decisions in this repository. Every rule below is a specific application of it. When in doubt, stop reading and use pending/.
 
+This one rule governs all decisions in this repository. Every rule below is
+a specific application of it. When in doubt, stop reading and use pending/.
+
+
+------------------------------------------------------------
 PURPOSE
+------------------------------------------------------------
 
 Genesis is a clean AI foundry repository.
+
 It exists to hold:
 - the canonical AI template (BlackZero)
 - reusable modules
@@ -15,224 +25,228 @@ It exists to hold:
 - reusable evaluations
 - reusable documentation
 
-It does NOT exist to hold random experiments, old apps, mixed agent code, or drifting architecture.
-Everything in Genesis must either:
-1. belong to the approved structure, or
-2. go into pending/
+It does NOT exist to hold random experiments, old apps, mixed agent code, or
+drifting architecture.
 
-ROOT STRUCTURE RULE
+Everything in Genesis must either:
+1) belong to the approved structure, or
+2) go into pending/
+
+
+------------------------------------------------------------
+1. ROOT STRUCTURE RULE
+------------------------------------------------------------
 
 The Genesis root may contain ONLY these entries:
-BlackZero/ modules/ agents/ builders/ evals/ datasets/ scripts/ configs/ docs/ docker/ pending/ README.md .git .gitignore
 
-No other root-level files or folders are allowed. Anything that does not belong goes into pending/.
+BlackZero/
+modules/
+agents/
+builders/
+evals/
+datasets/
+scripts/
+configs/
+docs/
+docker/
+pending/
+README.md
+.git
+.gitignore
 
-PENDING RULE
+No other root-level files or folders are allowed.
+Anything that does not belong goes into pending/.
+
+
+------------------------------------------------------------
+2. PENDING RULE
+------------------------------------------------------------
 
 pending/ is the quarantine folder.
+
 - Nothing is deleted.
 - Anything legacy, experimental, uncertain, duplicate, or unclassified goes here.
 - Files may only leave pending/ after deliberate review.
-- Never overwrite files when moving into pending/. If a name conflict exists, preserve both copies by renaming safely.
+- Never overwrite files when moving into pending/. If a name conflict exists,
+  preserve both copies by renaming safely.
 
 pending/ preserves history and prevents accidental loss.
 
-BLACKZERO RULE
 
-BlackZero is the canonical AI template — the genetics of every agent. It must remain stable, compact, inspectable, and reusable.
+------------------------------------------------------------
+3. BLACKZERO RULE
+------------------------------------------------------------
+
+BlackZero is the canonical AI template.
+
+BlackZero must remain stable and organized.
+
 BlackZero may contain ONLY:
-brain/ identity/ memory/ storage/ rag/ tools/ models/ policies/ diagnostics/ tests/
 
-No additional top-level BlackZero folders may be added without revising this rules file.
+brain/
+identity/
+memory/
+storage/
+rag/
+tools/
+models/
+policies/
+diagnostics/
+tests/
 
-BRAIN RULE
+No additional top-level BlackZero folders may be added without revising this
+rules file.
+
+BlackZero is the genetics of the AI. It should remain compact, inspectable,
+and reusable. It is a read-only template — never instantiated directly, never
+modified by automated processes.
+
+
+------------------------------------------------------------
+4. BRAIN RULE
+------------------------------------------------------------
 
 BlackZero/brain is locked.
-It must contain EXACTLY these four files, each with a fixed responsibility:
 
-loop.py — the main cognitive cycle; runs the agent's continuous process
-planner.py — decides what to do next given current state and goals
-executor.py — carries out the action decided by the planner
-router.py — directs input and output to the correct internal destination
+It must contain EXACTLY these four files:
 
-No additional files may be added. No files may be renamed. No files may be nested under brain/. Logic must not migrate between these files casually — if planner logic ends up in executor.py, that is a violation.
+loop.py     — the main cognitive cycle / run loop
+planner.py  — decides what to do next
+executor.py — carries out the decided action
+router.py   — directs input/output to the right place
 
-The brain is the hardened cognitive core. All complexity must be added OUTSIDE the brain.
+No additional files may be added to BlackZero/brain.
+No files may be renamed.
+No files may be nested under brain/.
+Logic may not migrate between files — planner logic stays in planner.py,
+executor logic stays in executor.py.
 
-IDENTITY RULE
+The brain is the hardened cognitive core.
+All complexity must be added OUTSIDE the brain.
+
+
+------------------------------------------------------------
+5. IDENTITY RULE
+------------------------------------------------------------
 
 BlackZero/identity must contain:
 
-mission.md — the AI's fixed purpose and operating mandate
-personality.yaml — tone, behavioral traits, and communication style
+mission.md       — the AI's purpose, scope, and behavioral constraints
+personality.yaml — tone, communication style, and character traits
 
-These files define the AI's core identity and must not be casually rewritten, filled with generated junk, or used as temporary scratch space.
+These define the AI's fixed core identity.
 
-MEMORY RULE
 
-BlackZero/memory holds memory management logic only.
-Allowed: memory manager, memory schemas, memory interfaces.
-Not allowed: experiment dumps, random transcripts, loose notes, training exports.
-Runtime data belongs in storage/ or datasets/, not inside memory source files.
+------------------------------------------------------------
+6. MODULES RULE
+------------------------------------------------------------
 
-STORAGE RULE
+modules/ holds reusable standalone code units.
 
-BlackZero/storage contains storage logic only.
-Allowed: sqlite store logic, vector store logic, storage adapters.
-Not allowed: loose .db files, backup dumps, exported artifacts scattered around the repo.
-Any database or generated runtime data must live in a controlled subfolder or be gitignored.
+Each module must:
+- solve one problem
+- be independently testable
+- have no dependency on a specific agent
 
-RAG RULE
+Modules are infrastructure. Agents consume them.
 
-BlackZero/rag contains retrieval logic only.
-Allowed: retrievers, embedding routers, indexing helpers.
-Not allowed: datasets, embedded documents, notes, random evaluation files.
-Data goes into datasets/ or evals/, not here.
 
-TOOLS RULE
+------------------------------------------------------------
+7. AGENTS RULE
+------------------------------------------------------------
 
-BlackZero/tools contains reusable tool infrastructure.
-Allowed: tool registry, base tool interface, tool execution helpers.
-Not allowed: one-off scripts, random experiments, project-specific hacks.
-Any temporary or experimental tool must go to pending/ until promoted.
+agents/ holds all agent implementations.
 
-MODELS RULE
+Each agent gets its own subfolder: agents/<agent_name>/
 
-BlackZero/models contains model routing and provider integration.
-Allowed: model router, provider adapter definitions.
-Not allowed: training data, transcripts, prompt experiments, mixed app logic.
-Provider-specific code must stay compartmentalized.
+Each agent folder must follow the BlackZero structure.
+Agents are built in GENESIS first. They graduate to Botico only after
+passing full validation.
 
-POLICIES RULE
+No agent code lives at the root of agents/.
 
-BlackZero/policies contains explicit policy files only.
-Allowed: safety rules, permissions, governance constraints.
-Policies must remain readable and separate from implementation logic. Do not bury policy logic inside random source files if it belongs here.
 
-DIAGNOSTICS RULE
+------------------------------------------------------------
+8. BUILDERS RULE
+------------------------------------------------------------
 
-BlackZero/diagnostics contains repo and system health logic.
-doctor.py is mandatory and must enforce:
-1. root structure validity
-2. BlackZero presence
-3. brain exact-file rule (four files, correct names)
-4. required folder existence
-5. pending/ existence
+builders/ holds scripts and tools that generate or scaffold agents,
+modules, or other repo artifacts.
 
-healthcheck.py may contain future runtime checks.
-Diagnostics must never be removed.
+Builders produce things. They are not agents themselves.
 
-TESTS RULE
 
-BlackZero/tests contains tests only.
-Required at minimum:
-- brain_tests.py — verifies brain contains exactly four correctly named files
-- structure_tests.py — verifies required folders exist and doctor passes
+------------------------------------------------------------
+9. EVALS RULE
+------------------------------------------------------------
 
-No experimental notebooks or ad hoc scratch files belong here.
+evals/ holds evaluation harnesses for testing agent behavior,
+model output quality, and system performance.
 
-MODULES RULE
+Evals are not unit tests. Unit tests live inside agent or module folders.
+Evals test behavior at a higher level.
 
-modules/ contains reusable capability modules.
-Current modules: teacher/, tax/, sdimport/
-Rules:
-- one capability per module folder
-- every module must have a module.py (class Module subclassing ModuleBase) and module.json
-- no agent identity inside modules
-- no root-level loose module files
-- modules must remain portable
 
-A module is a capability, not an agent.
-See docs/ADDING_A_MODULE.md for the step-by-step guide.
+------------------------------------------------------------
+10. DATASETS RULE
+------------------------------------------------------------
 
-AGENTS RULE
+datasets/ holds training data, prompt libraries, and reference corpora.
 
-agents/ contains actual AI instances built from BlackZero.
-Examples: engineer0/, madjanet/, cranston/, accountant/
-Rules:
-- agents inherit from BlackZero structure
-- agents must not redefine the entire core architecture
-- agent-specific code stays inside the agent folder
-- no agent may modify BlackZero directly
+No model weights. No large binaries unless explicitly approved.
+Large files use git-lfs or external storage with a pointer file here.
 
-BlackZero is the template. agents/ are derived instances.
 
-BUILDERS RULE
+------------------------------------------------------------
+11. SCRIPTS RULE
+------------------------------------------------------------
 
-builders/ contains code generation and scaffolding tools.
-Allowed: agent_builder.py, template_loader.py
-Not allowed: runtime AI behavior, random experiments, data dumps.
-Builders generate structure. They are not the structure.
+scripts/ holds one-off automation, migration, and maintenance scripts.
 
-EVALS RULE
+Scripts are not agents. Scripts are not modules.
+A script that grows into a reusable system moves to modules/.
 
-evals/ contains evaluation logic and suites.
-Allowed: reasoning tests, bias tests, tool tests.
-Rules:
-- evaluation data must be organized by test type
-- no random logs or outputs at root
-- generated eval outputs go in a dedicated output subfolder or are gitignored
 
-evals/ measures the AI. It is not part of the brain.
+------------------------------------------------------------
+12. CONFIGS RULE
+------------------------------------------------------------
 
-DATASETS RULE
+configs/ holds environment configs, model configs, and system settings.
 
-datasets/ contains structured data only.
-Allowed: curated datasets, training examples, retrieval corpora, benchmark input sets.
-Rules:
-- datasets must be named clearly
-- no mystery files or one-off dumps without description
-- every dataset must include a short README or metadata note
+No secrets. No API keys. No credentials.
+Secrets go in environment variables or a secrets manager — never in the repo.
 
-Data must not be scattered throughout the repo.
 
-SCRIPTS RULE
+------------------------------------------------------------
+13. DOCS RULE
+------------------------------------------------------------
 
-scripts/ contains runnable utility scripts.
-Allowed: launch_agent.py, run_evals.py, system_report.py
-Rules:
-- scripts are entrypoints or utilities only
-- do not put library logic here if it belongs elsewhere
-- do not duplicate functionality already in BlackZero or modules
+docs/ holds human-readable documentation.
 
-scripts/ is for execution helpers, not architecture.
-
-CONFIGS RULE
-
-configs/ contains configuration files only.
-Allowed: model_config.yaml, system_config.yaml
-Rules:
-- configs must remain human-readable
-- no secrets committed to git
-- no random backups or copies
-- config names must be explicit
-
-Environment secrets belong in .env files ignored by git.
-
-DOCS RULE
-
-docs/ contains all human-readable project guidance.
 Required files:
 - architecture.md
 - genesis_rules.md
 - blackzero_spec.md
-- ADDING_A_MODULE.md
 
-Rules:
-- docs must not contradict each other
-- new rules must be added by updating docs, not hidden in chat history
-- docs are the source of truth, not memory
+Docs must stay accurate. A doc that no longer reflects reality must be
+updated or moved to pending/.
 
-If the project changes, docs must be updated immediately.
 
-DOCKER RULE
+------------------------------------------------------------
+14. DOCKER RULE
+------------------------------------------------------------
 
-docker/ contains containerization support only.
+docker/ holds Dockerfiles and supporting docker configs.
+
 Allowed: Dockerfile, supporting docker configs.
 Not allowed: random runtime data, duplicate app code, hidden project structure.
+
 docker/ packages the project. It does not replace it.
 
-README RULE
+
+------------------------------------------------------------
+15. README RULE
+------------------------------------------------------------
 
 README.md must clearly explain:
 - what Genesis is
@@ -243,50 +257,75 @@ README.md must clearly explain:
 
 README must stay simple and accurate.
 
-PLACEHOLDER RULE
 
-During skeleton phase, all files except doctor.py may remain empty. Placeholder files keep the structure visible.
-Do not invent business logic early. Do not fill random files just to fill them.
+------------------------------------------------------------
+16. PLACEHOLDER RULE
+------------------------------------------------------------
+
+During skeleton phase, all files except doctor.py may remain empty.
+Placeholder files keep the structure visible.
+
+Do not invent business logic early.
+Do not fill random files just to fill them.
+
 The skeleton comes first. Real logic comes later.
 
-DISCIPLINE RULE
+
+------------------------------------------------------------
+17. DISCIPLINE RULE
+------------------------------------------------------------
 
 Before adding anything new, ask:
-1. Does this already belong in an existing folder?
-2. Is this a real subsystem or just an experiment?
-3. Is there already a canonical version of this elsewhere in the repo?
-4. Should it go to pending/ first?
+1) Does this already belong in an existing folder?
+2) Is this a real subsystem or just an experiment?
+3) Is there already a canonical version of this elsewhere in the repo?
+4) Should it go to pending/ first?
 
 If uncertain on any count, put it in pending/.
 
-One canonical place for each system. No duplicate brains, doctors, routers, or registries. No junk accumulation — .DS_Store, pycache, loose .pyc files, random zips, abandoned logs, and unnamed exports must be gitignored or quarantined.
+One canonical place for each system. No duplicate brains, doctors, routers,
+or registries. No junk accumulation — .DS_Store, __pycache__, loose .pyc
+files, random zips, abandoned logs, and unnamed exports must be gitignored
+or quarantined.
 
-HYGIENE RULE
+
+------------------------------------------------------------
+18. HYGIENE RULE
+------------------------------------------------------------
 
 Every file and folder name must explain its function at a glance.
+
 Good: memory_manager.py, sqlite_store.py, model_router.py
-Bad: temp.py, test2.py, stuff.py, newfile.py
+Bad:  temp.py, test2.py, stuff.py, newfile.py
 
 When recovering old work from pending/:
-1. inspect it
-2. decide its category
-3. move only the useful part into the correct folder
-4. leave the rest in pending/
+1) inspect it
+2) decide its category
+3) move only the useful part into the correct folder
+4) leave the rest in pending/
 
 Promote carefully. Do not resurrect chaos.
 
-CHANGE RULE
+
+------------------------------------------------------------
+19. CHANGE RULE
+------------------------------------------------------------
 
 Any structural change must update:
 - docs/genesis_rules.md
 - README.md
 - doctor.py
 
-If the rules change, the documentation and the doctor must change too. Otherwise structure and enforcement drift apart.
+If the rules change, the documentation and the doctor must change too.
+Otherwise structure and enforcement drift apart.
 
-SUCCESS RULE
+
+------------------------------------------------------------
+20. SUCCESS RULE
+------------------------------------------------------------
 
 The repository is considered organized only when:
+
 - root matches the approved structure
 - pending/ contains all quarantined legacy material
 - BlackZero exists and matches the locked layout
@@ -295,3 +334,39 @@ The repository is considered organized only when:
 - all stray files are removed or quarantined
 
 That is the definition of "organized."
+
+
+------------------------------------------------------------
+21. PROVING GROUND RULE
+------------------------------------------------------------
+
+GENESIS is the mandatory proving ground for all development.
+
+Nothing moves to Botico until it has been fully built, tested, and validated
+inside GENESIS. All agents, modules, and communication infrastructure must
+pass their full test suite before graduation.
+
+Once an artifact graduates to Botico, it is sealed. It cannot be modified
+by agents, automated processes, or casual edits. Changes require a new
+GENESIS cycle.
+
+Botico is production. GENESIS is where things earn the right to go there.
+
+
+------------------------------------------------------------
+22. VALIDATION RULE
+------------------------------------------------------------
+
+No agent reports a task complete without proof.
+
+Before any agent closes out a task, it must:
+1) Run all relevant tests for the work performed
+2) Return actual test output — pass/fail counts, errors, results
+3) Only then report success
+
+Saying "done" without test evidence is a violation of this rule.
+
+This applies to all agents: Engineer0, Cerberus, Accountant, and any
+future agent built in GENESIS.
+
+An agent that cannot validate its own work must escalate — not close.
