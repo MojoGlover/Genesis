@@ -2,15 +2,37 @@
 Model gateway client — all LLM calls go here.
 
 No direct Ollama, Anthropic, or OpenAI calls in agent code.
-If the gateway is down, falls back to direct Ollama (if configured).
+
+Call chain (first success wins):
+  1. Cloud primary  — if model.provider is "anthropic" or "openai"
+  2. Local gateway  — model_gateway module (port 9109)
+  3. Direct Ollama  — if fallback_ollama configured
+  4. Cloud fallback — last resort (Anthropic only, from model.cloud_fallback)
+
+Config (config.yaml model section):
+  provider:       "ollama"      # ollama | anthropic | openai
+  cloud_model:    ""            # e.g. claude-haiku-4-5, gpt-4o-mini (cloud primary)
+  primary:        ""            # gateway model_id (ollama path)
+  fallback:       ""            # direct ollama model name
+  cloud_fallback: ""            # anthropic model for last-resort fallback
+
+Environment:
+  ANTHROPIC_API_KEY   — required for provider=anthropic or cloud_fallback
+  OPENAI_API_KEY      — required for provider=openai
 """
 from __future__ import annotations
+
 import logging
+import os
+import time
 import httpx
 
 logger = logging.getLogger(__name__)
 
 _FALLBACK_TIMEOUT = 120.0
+
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+_OPENAI_URL    = "https://api.openai.com/v1/chat/completions"
 
 
 class GatewayError(Exception):
@@ -18,54 +40,76 @@ class GatewayError(Exception):
 
 
 class GatewayClient:
-    def __init__(self, agent_id: str, url: str, model: str = "",
-                 enabled: bool = True, fallback_ollama: str = "",
-                 model_map: dict | None = None):
-        self.agent_id        = agent_id
-        self.url             = url.rstrip("/")
-        self.model           = model   # default model_id (used when no task_type given)
-        self.enabled         = enabled
-        self.fallback_ollama = fallback_ollama  # e.g. "http://127.0.0.1:11434"
-        # task_type → gateway model_id  (e.g. {"reasoning": "ollama-llama3-70b", "chat": "engineer0-tools"})
+    def __init__(
+        self,
+        agent_id: str,
+        url: str,
+        model: str = "",
+        enabled: bool = True,
+        fallback_ollama: str = "",
+        fallback_model: str = "",
+        cloud_fallback_model: str = "",
+        cloud_provider: str = "ollama",   # "ollama" | "anthropic" | "openai"
+        cloud_model: str = "",            # model id for cloud primary
+        model_map: dict | None = None,
+    ) -> None:
+        self.agent_id             = agent_id
+        self.url                  = url.rstrip("/")
+        self.model                = model
+        self.enabled              = enabled
+        self.fallback_ollama      = fallback_ollama
+        self.fallback_model       = fallback_model or model
+        self.cloud_fallback_model = cloud_fallback_model
+        self.cloud_provider       = cloud_provider.lower()   # "anthropic" | "openai" | "ollama"
+        self.cloud_model          = cloud_model
         self._model_map: dict[str, str] = model_map or {}
 
+    @property
+    def _anthropic_key(self) -> str:
+        return os.environ.get("ANTHROPIC_API_KEY", "")
+
+    @property
+    def _openai_key(self) -> str:
+        return os.environ.get("OPENAI_API_KEY", "")
+
     def _model_for(self, task_type: str) -> str:
-        """Return the gateway model_id for a task type, falling back to the default."""
         return self._model_map.get(task_type, self.model)
 
     def chat_for(self, messages: list[dict], task_type: str = "chat",
                  max_tokens: int = 2048, timeout: float = _FALLBACK_TIMEOUT,
                  tools: list[dict] | None = None) -> dict:
-        """
-        Chat with automatic model selection based on task_type.
-        Pass tools to enable Ollama native function calling — when present,
-        the model outputs structured tool_calls instead of prose.
-        """
         return self.chat(messages, capability=task_type,
                          model_id_override=self._model_for(task_type),
-                         max_tokens=max_tokens, timeout=timeout,
-                         tools=tools)
+                         max_tokens=max_tokens, timeout=timeout, tools=tools)
 
     def chat(self, messages: list[dict], capability: str = "chat",
              model_id_override: str = "",
              max_tokens: int = 2048, timeout: float = _FALLBACK_TIMEOUT,
              tools: list[dict] | None = None) -> dict:
         """
-        Send a chat request. Returns dict with content, tool_calls, model_id,
-        cost_usd, latency_ms.
-
-        When tools is provided:
-          - Passed to Ollama's native function-calling API
-          - Response includes tool_calls list when model invokes a tool
-          - content will be empty on tool invocations
-          - Use parse_native_tool_call() from registry to extract the call
-
-        Raises GatewayError only if both gateway and fallback fail.
+        Route a chat request through the configured provider chain.
+        Returns dict: content, tool_calls, model_id, backend, cost_usd, latency_ms.
+        Raises GatewayError only if every path fails.
         """
-        model_id = model_id_override or self.model
-        if self.enabled:
+
+        # ── 1. Cloud primary (anthropic or openai) ────────────────────────────
+        if self.cloud_provider == "anthropic" and self.cloud_model and self._anthropic_key:
             try:
-                payload = {
+                return self._anthropic_chat(messages, self.cloud_model, max_tokens, timeout)
+            except GatewayError as e:
+                logger.warning(f"[gateway] Anthropic primary failed: {e} — trying local")
+
+        elif self.cloud_provider == "openai" and self.cloud_model and self._openai_key:
+            try:
+                return self._openai_chat(messages, self.cloud_model, max_tokens, timeout)
+            except GatewayError as e:
+                logger.warning(f"[gateway] OpenAI primary failed: {e} — trying local")
+
+        # ── 2. Local model_gateway ────────────────────────────────────────────
+        model_id = model_id_override or self.model
+        if self.enabled and model_id:
+            try:
+                payload: dict = {
                     "agent_id":   self.agent_id,
                     "messages":   messages,
                     "model_id":   model_id,
@@ -77,45 +121,122 @@ class GatewayClient:
                 r = httpx.post(f"{self.url}/chat", json=payload, timeout=timeout)
                 if r.status_code == 200:
                     return r.json()
-                logger.warning(f"[gateway] {r.status_code} — trying fallback")
+                if 400 <= r.status_code < 500:
+                    raise GatewayError(f"gateway rejected: HTTP {r.status_code} — {r.text[:200]}")
+                logger.warning(f"[gateway] {r.status_code} — trying Ollama fallback")
+            except GatewayError:
+                raise
             except Exception as e:
-                logger.warning(f"[gateway] unreachable ({e}) — trying fallback")
+                logger.warning(f"[gateway] unreachable ({e}) — trying Ollama fallback")
 
-        # Fallback: direct Ollama using self.model (the Ollama model name).
-        # model_id_override is a gateway model_id (e.g. "phi4-14b") — we can't
-        # resolve it to an Ollama name without the gateway, so we fall back to
-        # the primary model instead of crashing. This is always better than a
-        # hard GatewayError when Ollama is reachable.
-        if self.fallback_ollama and self.model:
-            logger.warning(
-                f"[gateway] Falling back to direct Ollama ({self.model})"
-                + (f" instead of {model_id_override}" if model_id_override else "")
+        # ── 3. Direct Ollama ──────────────────────────────────────────────────
+        if self.fallback_ollama and self.fallback_model:
+            logger.warning(f"[gateway] Direct Ollama fallback ({self.fallback_model})")
+            try:
+                return self._ollama_chat(messages, max_tokens, timeout, tools=tools)
+            except GatewayError as e:
+                logger.warning(f"[gateway] Ollama failed: {e} — trying cloud fallback")
+
+        # ── 4. Cloud fallback (Anthropic last resort) ─────────────────────────
+        if self.cloud_fallback_model and self._anthropic_key:
+            logger.warning(f"[gateway] Anthropic cloud fallback ({self.cloud_fallback_model})")
+            return self._anthropic_chat(messages, self.cloud_fallback_model, max_tokens, timeout)
+
+        raise GatewayError("all inference paths failed — no provider available")
+
+    # ── Provider implementations ───────────────────────────────────────────────
+
+    def _anthropic_chat(self, messages: list[dict], model: str,
+                        max_tokens: int, timeout: float) -> dict:
+        t0 = time.time()
+        try:
+            clean = _normalize_messages(messages)
+            r = httpx.post(
+                _ANTHROPIC_URL,
+                headers={
+                    "x-api-key":         self._anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type":      "application/json",
+                },
+                json={"model": model, "max_tokens": max_tokens, "messages": clean},
+                timeout=timeout,
             )
-            return self._ollama_fallback(messages, max_tokens, timeout, tools=tools)
+            r.raise_for_status()
+            data    = r.json()
+            content = "".join(b.get("text", "") for b in data.get("content", [])
+                              if b.get("type") == "text")
+            usage   = data.get("usage", {})
+            return {
+                "ok":            True,
+                "model_id":      model,
+                "backend":       "anthropic",
+                "content":       content,
+                "tool_calls":    None,
+                "input_tokens":  usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
+                "cost_usd":      0.0,
+                "latency_ms":    round((time.time() - t0) * 1000, 1),
+            }
+        except Exception as e:
+            raise GatewayError(f"anthropic failed: {e}") from e
 
-        raise GatewayError("model_gateway unavailable and no fallback configured")
+    def _openai_chat(self, messages: list[dict], model: str,
+                     max_tokens: int, timeout: float) -> dict:
+        t0 = time.time()
+        try:
+            clean = _normalize_messages(messages)
+            r = httpx.post(
+                _OPENAI_URL,
+                headers={
+                    "Authorization": f"Bearer {self._openai_key}",
+                    "Content-Type":  "application/json",
+                },
+                json={"model": model, "max_tokens": max_tokens, "messages": clean},
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            data    = r.json()
+            choice  = data.get("choices", [{}])[0]
+            content = choice.get("message", {}).get("content", "") or ""
+            usage   = data.get("usage", {})
+            return {
+                "ok":            True,
+                "model_id":      model,
+                "backend":       "openai",
+                "content":       content,
+                "tool_calls":    None,
+                "input_tokens":  usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+                "cost_usd":      0.0,
+                "latency_ms":    round((time.time() - t0) * 1000, 1),
+            }
+        except Exception as e:
+            raise GatewayError(f"openai failed: {e}") from e
 
-    def _ollama_fallback(self, messages: list[dict], max_tokens: int,
-                         timeout: float, tools: list[dict] | None = None) -> dict:
-        import time
+    def _ollama_chat(self, messages: list[dict], max_tokens: int,
+                     timeout: float, tools: list[dict] | None = None) -> dict:
         t0 = time.time()
         try:
             body: dict = {
-                "model":   self.model,
+                "model":    self.fallback_model,
                 "messages": messages,
-                "options": {"num_predict": max_tokens},
-                "stream":  False,
+                "options":  {"num_predict": max_tokens},
+                "stream":   False,
             }
             if tools:
                 body["tools"] = tools
 
-            r = httpx.post(f"{self.fallback_ollama}/api/chat",
-                           json=body, timeout=timeout)
+            r = httpx.post(f"{self.fallback_ollama}/api/chat", json=body, timeout=timeout)
+
+            if r.status_code == 400 and tools:
+                logger.warning("[gateway] Ollama rejected tools — retrying without")
+                body.pop("tools")
+                r = httpx.post(f"{self.fallback_ollama}/api/chat", json=body, timeout=timeout)
+
             r.raise_for_status()
-            data    = r.json()
-            message = data.get("message", {})
-            content = message.get("content", "")
-            # Native tool calls come back on message.tool_calls
+            data       = r.json()
+            message    = data.get("message", {})
+            content    = message.get("content", "")
             tool_calls = message.get("tool_calls")
             if not tool_calls and content:
                 from agent.tools.registry import parse_tool_call as _ptc
@@ -123,17 +244,36 @@ class GatewayClient:
                 if parsed:
                     tool_calls = [{"function": {"name": parsed["tool"],
                                                 "arguments": parsed.get("params", {})}}]
-
             return {
-                "ok":           True,
-                "model_id":     self.model,
-                "backend":      "ollama-direct",
-                "content":      content,
-                "tool_calls":   tool_calls,   # None when prose, list when tool invoked
+                "ok":            True,
+                "model_id":      self.fallback_model,
+                "backend":       "ollama-direct",
+                "content":       content,
+                "tool_calls":    tool_calls,
                 "input_tokens":  len(str(messages)) // 4,
                 "output_tokens": len(content) // 4,
-                "cost_usd":     0.0,
-                "latency_ms":   round((time.time() - t0) * 1000, 1),
+                "cost_usd":      0.0,
+                "latency_ms":    round((time.time() - t0) * 1000, 1),
             }
         except Exception as e:
-            raise GatewayError(f"ollama fallback failed: {e}") from e
+            raise GatewayError(f"ollama failed: {e}") from e
+
+
+def _normalize_messages(messages: list[dict]) -> list[dict]:
+    """
+    Normalize messages for cloud APIs:
+    - Keep only role + content fields
+    - Merge consecutive same-role messages (Anthropic requires alternating)
+    - Drop empty content
+    """
+    clean: list[dict] = []
+    for m in messages:
+        role    = m.get("role", "")
+        content = m.get("content") or ""
+        if role not in ("user", "assistant") or not content:
+            continue
+        if clean and clean[-1]["role"] == role:
+            clean[-1]["content"] += "\n" + content
+        else:
+            clean.append({"role": role, "content": content})
+    return clean

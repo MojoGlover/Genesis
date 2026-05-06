@@ -1,0 +1,66 @@
+identity:
+  id:           "math"
+  name:         "Math"
+  role:         "Arithmetic solver"
+  owner:        "Computer Black"
+  capabilities: ["chat", "arithmetic"]
+
+data_dir: "~/.math"
+
+model:
+  primary: "ollama-llama3-3b"
+
+api:
+  host: "0.0.0.0"
+  port: 5007
+
+plugops:
+  url:                   "ws://127.0.0.1:9000/ws/math"
+  heartbeat_seconds:     10
+  reconnect_max_seconds: 30
+
+modules:
+  base_url: "http://127.0.0.1"
+
+  communication:
+    port:    9100
+    enabled: false
+
+  registry:
+    port:    9101
+    enabled: true
+
+  mind_state:
+    port:    9102
+    enabled: false
+
+  supervisor:
+    port:    9103
+    enabled: false
+
+  policy_gate:
+    port:    9104
+    enabled: false
+
+  tool_bus:
+    port:    9105
+    enabled: false
+
+  ledger:
+    port:    9106
+    enabled: false
+
+  scheduler:
+    port:    9107
+    enabled: false
+
+  observability:
+    port:    9108
+    enabled: false
+
+  model_gateway:
+    port:    9109
+    enabled: true
+
+logging:
+  level: "INFO"

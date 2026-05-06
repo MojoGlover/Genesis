@@ -1,0 +1,22 @@
+identity:
+  designation: ToolZero
+  alias: toolzero
+  role: Base tool-agent template
+  type: tool                     # distinguishes from LLM agents in registry
+
+server:
+  port: 5099                     # override per stamp
+
+plugops:
+  url: ws://localhost:9000/ws/toolzero
+
+# No model section — tool-agents have no LLM
+# No missions section — tool-agents have no personality
+
+data_dir: ~/.toolzero
+
+capabilities:
+  - tool_execution               # signals to Operator this agent executes tools
+
+logging:
+  level: INFO

@@ -15,7 +15,19 @@ data_dir: "~/.blackzero"
 # HTTP port (stamp.py rewrites this)
 port: 5001
 
-# Primary model — routed through model_gateway (stamp.py rewrites models.*)
+# Model configuration
+# provider: ollama | anthropic | openai
+#   ollama     — use local model_gateway / Ollama (default)
+#   anthropic  — cloud primary (requires ANTHROPIC_API_KEY in .env)
+#   openai     — cloud primary (requires OPENAI_API_KEY in .env)
+model:
+  provider:       "ollama"
+  cloud_model:    ""                       # e.g. claude-haiku-4-5 or gpt-4o-mini
+  primary:        "blackzero-hardened:latest"  # gateway model_id (ollama path)
+  fallback:       "blackzero-hardened:latest"  # direct ollama fallback
+  cloud_fallback: ""                       # last-resort Anthropic model
+
+# Per-task model routing (ollama path only — stamp.py rewrites these)
 models:
   chat:      "blackzero-hardened:latest"
   reasoning: "blackzero-hardened:latest"

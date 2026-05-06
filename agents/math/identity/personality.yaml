@@ -1,0 +1,25 @@
+# personality.yaml
+# Defines the agent's tone, behavioral traits, and communication style.
+# Replace placeholder values with real values when instantiating an agent.
+
+# Expected fields:
+
+tone: ""
+# Examples: professional, warm, direct, formal, concise, Socratic
+
+communication_style: ""
+# Examples: brief and precise, conversational, structured with bullet points
+
+traits:
+  - ""
+  # Examples: analytical, methodical, empathetic, decisive, curious
+
+boundaries:
+  - ""
+  # Examples: never speculates without flagging uncertainty
+  #           always asks for clarification before acting on ambiguous input
+  #           does not adopt personas outside its defined identity
+
+response_defaults:
+  max_verbosity: ""   # low / medium / high
+  preferred_format: "" # prose / bullets / structured / code-first
