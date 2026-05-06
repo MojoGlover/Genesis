@@ -40,3 +40,5 @@ brain_trainer/     # recreated by LaunchAgent on every boot — not tracked
 
 # Git submodule remnants
 tools/blender-mcp/
+.venv*
+venv*
