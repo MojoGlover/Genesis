@@ -32,11 +32,15 @@ _FALLBACK_DB: dict[str, sqlite3.Connection] = {}
 
 class MindStateClient:
     def __init__(self, agent_id: str, url: str, enabled: bool = True,
-                 local_fallback_dir: Path | None = None):
-        self.agent_id  = agent_id
-        self.url       = url.rstrip("/")
-        self.enabled   = enabled
-        self._fallback = local_fallback_dir
+                 local_fallback_dir: Path | None = None,
+                 plugops_url: str = ""):
+        self.agent_id   = agent_id
+        self.url        = url.rstrip("/")
+        self.enabled    = enabled
+        self._fallback  = local_fallback_dir
+        # PlugOps mind_state REST URL — used for cross-host snapshots (Agent Hospital)
+        # e.g. "https://plugzero-xyz.a.run.app"
+        self._plugops   = plugops_url.rstrip("/")
 
     def set_fallback_dir(self, path: Path) -> None:
         self._fallback = path
@@ -53,13 +57,69 @@ class MindStateClient:
 
     # ── Full state snapshots — module server ──────────────────────────────────
 
+    def pull_snapshot(self) -> dict | None:
+        """
+        Pull the latest state snapshot from PlugOps mind_state.
+        Called on boot so the agent resumes where it left off (Agent Hospital / mobility).
+        Returns the full snapshot dict, or None if none exists.
+        """
+        if not self._plugops:
+            return None
+        try:
+            r = httpx.get(
+                f"{self._plugops}/api/v1/mind_state/{self.agent_id}/snapshot",
+                timeout=5.0,
+            )
+            if r.status_code == 200:
+                snap = r.json()
+                logger.info(f"[mind_state] Pulled snapshot v{snap.get('version')} for {self.agent_id}")
+                return snap
+        except Exception as e:
+            logger.warning(f"[mind_state] pull_snapshot failed: {e}")
+        return None
+
+    def push_snapshot(self, session_history: list, task_queue: list,
+                      working_memory: dict, host: str = "") -> None:
+        """
+        Push a full state snapshot to PlugOps mind_state.
+        Call this before migration or at meaningful task checkpoints.
+        """
+        if not self._plugops:
+            return
+        import socket
+        payload = {
+            "agent_id":       self.agent_id,
+            "session_history": session_history,
+            "task_queue":     task_queue,
+            "working_memory": working_memory,
+            "host":           host or socket.gethostname(),
+        }
+        try:
+            r = httpx.post(
+                f"{self._plugops}/api/v1/mind_state/{self.agent_id}/snapshot",
+                json=payload,
+                timeout=5.0,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                logger.info(f"[mind_state] Pushed snapshot v{data.get('version')} for {self.agent_id}")
+        except Exception as e:
+            logger.warning(f"[mind_state] push_snapshot failed: {e}")
+
     def restore(self) -> dict | None:
         """
-        Pull the agent's last saved state snapshot from the module server.
+        Pull the agent's last saved state snapshot.
+        Checks PlugOps first (cross-host), falls back to local module server.
         Called by Agent Hospital on restart (MIND_STATE_RESTORE_VERSION env var).
         Returns the state dict, or None if nothing to restore.
         """
         import os
+        # Try PlugOps snapshot first (supports cross-host recovery)
+        snap = self.pull_snapshot()
+        if snap:
+            return snap
+
+        # Legacy: local module server with version env var
         version = os.environ.get("MIND_STATE_RESTORE_VERSION")
         if not version or not self.enabled:
             return None
@@ -78,11 +138,21 @@ class MindStateClient:
 
     def save_snapshot(self, state: dict, label: str = "") -> None:
         """
-        Save a full state snapshot to the module server (Agent Hospital use).
-        Agents can call this at meaningful checkpoints — not every turn.
+        Save a full state snapshot (Agent Hospital use).
+        Pushes to PlugOps if configured; falls back to local module server.
         """
         if not self.enabled:
             return
+        # Push to PlugOps (preferred — cross-host)
+        if self._plugops:
+            self.push_snapshot(
+                session_history=state.get("session_history", []),
+                task_queue=state.get("task_queue", []),
+                working_memory=state.get("working_memory", {}),
+                host=state.get("host", ""),
+            )
+            return
+        # Legacy: local module server
         try:
             httpx.post(
                 f"{self.url}/agents/{self.agent_id}/state",

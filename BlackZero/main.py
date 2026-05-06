@@ -99,6 +99,19 @@ async def main() -> None:
     mods = init_modules(config, agent_id, data_dir=data_dir)
     logger.info(f"[modules] {mods.summary()}")
 
+    # ── 3b. Restore from PlugOps snapshot (Agent Hospital / mobility) ─────────
+    _restored_snapshot: dict | None = None
+    try:
+        _restored_snapshot = mods.mind_state.pull_snapshot()
+        if _restored_snapshot:
+            ver = _restored_snapshot.get("version", "?")
+            src = _restored_snapshot.get("host", "unknown")
+            logger.info(f"[boot] Restored snapshot v{ver} from {src}")
+        else:
+            logger.info("[boot] No snapshot — fresh start")
+    except Exception as _e:
+        logger.warning(f"[boot] Snapshot pull failed: {_e}")
+
     # ── 4. Register with registry ─────────────────────────────────────────────
     mods.registry.register(
         agent_id=agent_id,
@@ -164,9 +177,10 @@ async def main() -> None:
 
     logger.info(f"[api] HTTP server starting on port {api_port}")
 
-    # ── 9. Autonomous loops ───────────────────────────────────────────────────
-    from agent.core.loops import build_loops
+    # ── 9. Autonomous loops + migration trigger ───────────────────────────────
+    from agent.core.loops import build_loops, build_migration_trigger
     loops = build_loops(config, graph, data_dir, agent_name)
+    loops += build_migration_trigger(config, agent_id, agent_name, mods)
 
     # ── Live ──────────────────────────────────────────────────────────────────
     mods.obs.beat(status="ok")

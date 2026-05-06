@@ -57,6 +57,9 @@ modules:
   mind_state:
     port:    9102
     enabled: true
+    # PlugOps URL for cross-host snapshots (Agent Hospital / mobility)
+    # e.g. "https://plugzero-xyz.a.run.app"  — leave empty to disable
+    plugops_url: ""
 
   supervisor:
     port:    9103
@@ -85,6 +88,12 @@ modules:
   model_gateway:
     port:    9109
     enabled: true
+
+# Agent mobility — move to plugwan for heavy tasks, return when done
+# Set enabled: true and plugops_url to activate the migration trigger loop.
+mobility:
+  enabled: false
+  plugops_url: "https://plugzero-fmhdkkt4oq-uc.a.run.app"
 
 logging:
   level: "INFO"

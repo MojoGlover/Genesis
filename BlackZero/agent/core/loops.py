@@ -391,6 +391,35 @@ async def todo_loop(
 
 # ── Loop builder ──────────────────────────────────────────────────────────────
 
+def build_migration_trigger(config: dict, agent_id: str, agent_name: str, mods) -> list:
+    """
+    Return a migration trigger coroutine if mobility is enabled in config.
+
+    config.yaml:
+      mobility:
+        enabled: true
+        plugops_url: "https://plugzero-fmhdkkt4oq-uc.a.run.app"
+    """
+    mob = config.get("mobility", {})
+    if not mob.get("enabled", False):
+        return []
+
+    from agent.core.migration import MigrationTrigger
+    plugops_url = mob.get("plugops_url", "")
+    if not plugops_url:
+        logger.warning("[migration] mobility.enabled=true but no plugops_url — skipping")
+        return []
+
+    trigger = MigrationTrigger(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        plugops_base=plugops_url,
+        mods=mods,
+    )
+    logger.info(f"[migration] Mobility enabled → {plugops_url}")
+    return [trigger.run()]
+
+
 def build_loops(config: dict, graph, data_dir: Path, agent_name: str) -> list:
     """
     Read config.yaml autonomy.loops and return a list of coroutines to
