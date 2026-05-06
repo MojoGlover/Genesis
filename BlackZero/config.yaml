@@ -1,36 +1,36 @@
 # config.yaml — BlackZero agent template
-# All stamp slots are replaced by stamp.py before use.
-# Stamp slots: {{AGENT_ID}}, {{AGENT_NAME}}, {{AGENT_ROLE}},
-#              {{AGENT_PORT}}, {{AGENT_MODEL}}, {{PLUGOPS_URL}}
+# stamp.py loads this as YAML and overwrites identity/port/model fields.
+# Do NOT use {{SLOT}} syntax here — this file must be valid YAML.
 
 identity:
-  id:           "{{AGENT_ID}}"
-  name:         "{{AGENT_NAME}}"
-  role:         "{{AGENT_ROLE}}"
+  designation: "BlackZero"
+  alias:        "blackzero"
+  role:         "Base agent template — replace via stamp.py"
   owner:        "Computer Black"
   capabilities: ["chat"]
 
-# Where the agent stores its persistent data
-data_dir: "~/.{{AGENT_ID}}"
+# Where the agent stores its persistent data (stamp.py rewrites this)
+data_dir: "~/.blackzero"
 
-# Primary model — routed through model_gateway
-model:
-  primary: "{{AGENT_MODEL}}"
+# HTTP port (stamp.py rewrites this)
+port: 5001
 
-# HTTP API
-api:
-  host: "0.0.0.0"
-  port: {{AGENT_PORT}}
+# Primary model — routed through model_gateway (stamp.py rewrites models.*)
+models:
+  chat:      "blackzero-hardened:latest"
+  reasoning: "blackzero-hardened:latest"
+  fast:      "blackzero-hardened:latest"
+  code:      "qwen2.5-coder:3b"
+  embedding: "all-mpnet-base-v2"
 
-# PlugOps WebSocket bridge
+# PlugOps bridge config
 plugops:
-  url:                   "{{PLUGOPS_URL}}"
+  url:                   "https://plugzero-fmhdkkt4oq-uc.a.run.app"
   heartbeat_seconds:     10
   reconnect_max_seconds: 30
 
 # Infrastructure module clients (ports 9100–9109)
 # All silent-fail — agent works even if a module is down.
-# Set enabled: false to skip a module entirely.
 modules:
   base_url: "http://127.0.0.1"
 
@@ -48,7 +48,7 @@ modules:
 
   supervisor:
     port:    9103
-    enabled: true   # passive — supervisor watches us, nothing to call
+    enabled: true
 
   policy_gate:
     port:    9104
@@ -64,7 +64,7 @@ modules:
 
   scheduler:
     port:    9107
-    enabled: false  # opt-in — enable if agent needs scheduled jobs
+    enabled: false
 
   observability:
     port:    9108
