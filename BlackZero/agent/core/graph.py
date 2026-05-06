@@ -215,6 +215,11 @@ def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
         "all done", "the work is done", "here is the result",
         "here are the results", "the file is ready", "the script is ready",
         "the report is ready", "done:", "finished:",
+        "i've updated", "i have updated", "i updated the",
+        "changes applied", "changes have been applied", "config modified",
+        "configuration updated", "i modified", "i've modified",
+        "has been updated", "has been modified", "has been applied",
+        "successfully updated", "successfully modified", "successfully applied",
     )
     if any(p in lowered for p in write_claim_patterns):
         if not called.intersection(write_tools):
@@ -487,10 +492,12 @@ def make_tool_node(execute_tool, mods: "Modules"):
         # tools, policy denials, or tool errors. An unknown/errored tool still
         # goes into tool_history so the model can see the failure, but it does
         # NOT count as evidence that real work was done.
+        lowered_result = result_str.lower()
         real_execution = not (
-            result_str.startswith("Unknown tool:") or
-            result_str.startswith("Policy denied:") or
-            result_str.startswith("Tool error:")
+            lowered_result.startswith("unknown tool:") or
+            lowered_result.startswith("policy denied:") or
+            lowered_result.startswith("tool error:") or
+            lowered_result.startswith("error:")
         )
 
         return {**state,

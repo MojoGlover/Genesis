@@ -98,8 +98,8 @@ async def task_loop(graph, data_dir: Path, interval: int = 30) -> None:
                 )
                 result     = state.get("response", "No response").strip()
                 tools_ran  = state.get("_tools_ran", 0)
-                is_failure = result.upper().startswith("FAILED:")
-                done_claim = result.upper().startswith("DONE:")
+                is_failure = "FAILED:" in result.upper()
+                done_claim = "DONE:" in result.upper()
 
                 # Explicit FAILED: → accept as failure regardless of tool count.
                 # DONE: with zero tools → hallucination → force failure.
@@ -325,8 +325,8 @@ async def todo_loop(
                 # has_marker alone is NOT sufficient — a hallucinating model can output
                 # DONE: with zero tool calls.
                 tools_ran  = state.get("_tools_ran", 0)
-                is_failure = result.upper().startswith("FAILED:")
-                done_claim = result.upper().startswith("DONE:")
+                is_failure = "FAILED:" in result.upper()
+                done_claim = "DONE:" in result.upper()
 
                 # Same logic as task_loop:
                 # DONE: with zero tools = hallucinated completion.

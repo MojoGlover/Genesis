@@ -117,6 +117,12 @@ class GatewayClient:
             content = message.get("content", "")
             # Native tool calls come back on message.tool_calls
             tool_calls = message.get("tool_calls")
+            if not tool_calls and content:
+                from agent.tools.registry import parse_tool_call as _ptc
+                parsed = _ptc(content)
+                if parsed:
+                    tool_calls = [{"function": {"name": parsed["tool"],
+                                                "arguments": parsed.get("params", {})}}]
 
             return {
                 "ok":           True,

@@ -28,7 +28,8 @@ class PolicyClient:
                 "resource":    resource,
             }, timeout=3.0)
             if r.status_code == 200:
-                return r.json().get("effect", "allow") == "allow"
+                # Server returns "decision", not "effect"
+                return r.json().get("decision", "allow") == "allow"
         except Exception:
             pass
         return True  # fail-open: down = allow

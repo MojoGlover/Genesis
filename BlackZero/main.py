@@ -7,8 +7,9 @@ Boot sequence:
   3. Initialize module clients (obs, ledger, gateway, policy, registry, mind_state, …)
   4. Register with registry module
   5. Build LangGraph
-  6. Start HTTP API + PlugOps bridge concurrently
-  7. Push health beat — agent is live
+  6. Bootstrap mission check — marks agent ready if model responds
+  7. Start HTTP API + PlugOps bridge + loops concurrently
+  8. Push health beat — agent is live
 
 Single entry point. No loader.py, no cognitive loop, no dual boot paths.
 LangGraph only.
@@ -39,6 +40,16 @@ logger = logging.getLogger(__name__)
 
 AGENT_DIR    = Path(__file__).parent
 MISSIONS_DIR = AGENT_DIR / "missions"
+
+
+async def _supervised(name: str, coro) -> None:
+    """Run a coroutine; swallow crashes so other gather tasks stay alive."""
+    try:
+        await coro
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.error(f"[{name}] Crashed: {e}")
 
 
 async def main() -> None:
@@ -85,7 +96,7 @@ async def main() -> None:
 
     # ── 3. Module clients ─────────────────────────────────────────────────────
     from agent.modules import init_modules
-    mods = init_modules(config, agent_id)
+    mods = init_modules(config, agent_id, data_dir=data_dir)
     logger.info(f"[modules] {mods.summary()}")
 
     # ── 4. Register with registry ─────────────────────────────────────────────
@@ -103,7 +114,22 @@ async def main() -> None:
     graph = build_graph(config, system_prompt, data_dir, mods)
     logger.info("[graph] Ready — recall → think ⇄ tool → respond")
 
-    # ── 6. PlugOps bridge ─────────────────────────────────────────────────────
+    # ── 6. Bootstrap mission check ────────────────────────────────────────────
+    # model_ready = True means the LLM gateway responded during bootstrap.
+    # /health returns "starting" until this is confirmed.
+    model_ready = False
+    try:
+        verified = loader.bootstrap_check_via_gateway(mods.gateway, system_prompt, agent_name)
+        loader.save_bootstrap_result(data_dir, verified, agent_name)
+        model_ready = True
+        if verified:
+            logger.info("[bootstrap] PASS — mission acknowledged")
+        else:
+            logger.warning("[bootstrap] WARN — unexpected response (continuing)")
+    except Exception as e:
+        logger.warning(f"[bootstrap] Skipped — gateway not ready: {e}")
+
+    # ── 7. PlugOps bridge ─────────────────────────────────────────────────────
     from agent.plugops.bridge import PlugOpsBridge
     from agent.plugops.handler import MessageHandler
 
@@ -126,25 +152,36 @@ async def main() -> None:
                              agent_name=agent_name, mission_context=system_prompt)
     bridge.on_message_callback = handler.handle
 
-    # ── 7. HTTP API ───────────────────────────────────────────────────────────
+    # ── 8. HTTP API ───────────────────────────────────────────────────────────
     from agent.api.server import app as api_app, init as init_api
     import uvicorn
 
     api_port = int(os.environ.get("AGENT_PORT") or config.get("api", {}).get("port", 5001))
-    init_api(agent_id, graph, system_prompt, data_dir, mods)
+    init_api(agent_id, graph, system_prompt, data_dir, mods, ready=model_ready)
 
     api_cfg    = uvicorn.Config(api_app, host="0.0.0.0", port=api_port, log_level="warning")
     api_server = uvicorn.Server(api_cfg)
 
     logger.info(f"[api] HTTP server starting on port {api_port}")
 
-    # ── 8. Health beat — we're live ───────────────────────────────────────────
+    # ── 9. Autonomous loops ───────────────────────────────────────────────────
+    from agent.core.loops import build_loops
+    loops = build_loops(config, graph, data_dir, agent_name)
+
+    # ── Live ──────────────────────────────────────────────────────────────────
     mods.obs.beat(status="ok")
     logger.info(f"{agent_name} ready.")
 
-    # ── Run bridge + API server concurrently ──────────────────────────────────
+    # api_server.serve() is the master coroutine — if it dies, the process exits
+    # and launchd restarts. All other coroutines are supervised: their crashes are
+    # logged but do not bring down the API server.
     try:
-        await asyncio.gather(bridge.connect(), api_server.serve())
+        await asyncio.gather(
+            api_server.serve(),
+            _supervised("bridge",   bridge.connect()),
+            _supervised("registry", mods.registry.heartbeat_loop(agent_id)),
+            *[_supervised(f"loop-{i}", loop) for i, loop in enumerate(loops)],
+        )
     finally:
         mods.obs.beat(status="offline")
         mods.registry.deregister(agent_id)

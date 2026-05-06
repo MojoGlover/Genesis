@@ -1,12 +1,12 @@
 """
 agent/modules/__init__.py — Infrastructure module client bundle.
 
-All 10 module clients initialized once at boot and passed to graph nodes.
+All module clients initialized once at boot and passed to graph nodes.
 Every client is silent-fail — a module being down never crashes the agent.
 
 Usage:
     from agent.modules import init_modules
-    mods = init_modules(config, agent_id)
+    mods = init_modules(config, agent_id, data_dir=data_dir)
 
     mods.obs.beat(status="ok")
     mods.ledger.record(resource="llm", units=100, cost_usd=0.002)
@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from agent.modules.obs            import ObsClient
 from agent.modules.ledger         import LedgerClient
@@ -26,6 +27,7 @@ from agent.modules.registry_client import RegistryClient
 from agent.modules.mind_state     import MindStateClient
 from agent.modules.scheduler      import SchedulerClient
 from agent.modules.tool_bus       import ToolBusClient
+from agent.modules.rag            import RAGClient
 
 
 @dataclass
@@ -39,6 +41,7 @@ class Modules:
     mind_state: MindStateClient
     scheduler: SchedulerClient
     tool_bus:  ToolBusClient
+    rag:       RAGClient
 
     def summary(self) -> str:
         enabled = []
@@ -51,10 +54,11 @@ class Modules:
         if self.mind_state.enabled: enabled.append("mind_state")
         if self.scheduler.enabled: enabled.append("scheduler")
         if self.tool_bus.enabled:  enabled.append("tool_bus")
+        if self.rag.enabled:       enabled.append("rag")
         return f"enabled=[{', '.join(enabled)}]"
 
 
-def init_modules(config: dict, agent_id: str) -> Modules:
+def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> Modules:
     """Build all module clients from config. Called once at boot."""
     base    = config.get("modules", {}).get("base_url", "http://127.0.0.1")
     mods_cfg = config.get("modules", {})
@@ -86,4 +90,7 @@ def init_modules(config: dict, agent_id: str) -> Modules:
                                      enabled=enabled("scheduler", False)),
         tool_bus   = ToolBusClient(agent_id, url("tool_bus", 9105),
                                    enabled=enabled("tool_bus")),
+        rag        = RAGClient(data_dir or Path(f"~/.{agent_id}").expanduser(),
+                               agent_id=agent_id,
+                               enabled=enabled("rag", True)),
     )
