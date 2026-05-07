@@ -54,6 +54,10 @@ class PlugOpsBridge:
         self.on_message_callback = on_message_callback
         self._heartbeat_secs     = cfg.get("heartbeat_seconds", 10)
         self._backoff_max        = cfg.get("reconnect_max_seconds", 30)
+        # Grid location — used in registration so PlugOps can build api_url.
+        # Set in config.yaml as plugops.host and plugops.port (agent's own address).
+        self._host: str | None   = cfg.get("host")
+        self._port: int | None   = cfg.get("port")
         # If PlugOps goes silent, reconnect after this many seconds with no event.
         # PlugOps must send keepalive SSE comments (": keepalive") at a shorter interval.
         self._sse_read_timeout   = cfg.get("sse_read_timeout_seconds", 90)
@@ -127,19 +131,27 @@ class PlugOpsBridge:
         assert self._client is not None
         for attempt in range(retries):
             try:
+                payload: dict = {
+                    "id":           self.agent_id,
+                    "name":         self.agent_name,
+                    "type":         "autonomous",
+                    "base_dir":     f"/agents/{self.agent_id}",
+                    "capabilities": self.capabilities,
+                    "metadata": {
+                        "emoji": "⚙️",
+                        "role":  "Systems, code & infrastructure",
+                    },
+                }
+                # Include host+port so PlugOps can derive api_url for grid resolution.
+                # Other agents call GET /api/v1/agents/{id}/url instead of hardcoding.
+                if self._host:
+                    payload["host"] = self._host
+                if self._port:
+                    payload["port"] = self._port
+
                 r = await self._client.post(
                     f"{self.base_url}/api/v1/agents/register",
-                    json={
-                        "id":           self.agent_id,
-                        "name":         self.agent_name,
-                        "type":         "autonomous",
-                        "base_dir":     f"/agents/{self.agent_id}",
-                        "capabilities": self.capabilities,
-                        "metadata": {
-                            "emoji": "⚙️",
-                            "role":  "Systems, code & infrastructure",
-                        },
-                    },
+                    json=payload,
                 )
                 if r.status_code in (200, 201, 409):
                     self._connected = True

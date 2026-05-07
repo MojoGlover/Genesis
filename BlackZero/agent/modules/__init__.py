@@ -28,6 +28,7 @@ from agent.modules.mind_state     import MindStateClient
 from agent.modules.scheduler      import SchedulerClient
 from agent.modules.tool_bus       import ToolBusClient
 from agent.modules.rag            import RAGClient
+from agent.modules.grid           import GridResolver
 
 
 @dataclass
@@ -42,6 +43,7 @@ class Modules:
     scheduler: SchedulerClient
     tool_bus:  ToolBusClient
     rag:       RAGClient
+    grid:      GridResolver
 
     def summary(self) -> str:
         enabled = []
@@ -55,6 +57,7 @@ class Modules:
         if self.scheduler.enabled: enabled.append("scheduler")
         if self.tool_bus.enabled:  enabled.append("tool_bus")
         if self.rag.enabled:       enabled.append("rag")
+        # grid is always available — no enabled flag (pure resolver, no daemon)
         return f"enabled=[{', '.join(enabled)}]"
 
 
@@ -62,6 +65,13 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
     """Build all module clients from config. Called once at boot."""
     base    = config.get("modules", {}).get("base_url", "http://127.0.0.1")
     mods_cfg = config.get("modules", {})
+    # PlugOps base URL — canonical source is plugops.url, with fallback to modules.plugops_url
+    # for any legacy config that set it there (e.g. mind_state.plugops_url).
+    _plugops_url = (
+        config.get("plugops", {}).get("url")
+        or mods_cfg.get("plugops_url")
+        or "https://plugzero-fmhdkkt4oq-uc.a.run.app"
+    )
 
     def url(name: str, default_port: int) -> str:
         port = mods_cfg.get(name, {}).get("port", default_port)
@@ -102,4 +112,5 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
         rag        = RAGClient(data_dir or Path(f"~/.{agent_id}").expanduser(),
                                agent_id=agent_id,
                                enabled=enabled("rag", True)),
+        grid       = GridResolver(plugops_base=_plugops_url),
     )
