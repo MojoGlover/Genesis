@@ -48,10 +48,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Global semaphore — limits concurrent Ollama inference calls across all loops.
+# Prevents agents from pile-driving the local GPU when multiple loops fire together.
+# Value of 2 allows one active + one queued; raise if you have headroom.
+_OLLAMA_SEM = asyncio.Semaphore(2)
+
 
 # ── Task loop ─────────────────────────────────────────────────────────────────
 
-async def task_loop(graph, data_dir: Path, interval: int = 30) -> None:
+async def task_loop(graph, data_dir: Path, interval: int = 30,
+                    startup_delay: int = 0) -> None:
     """
     Check the task queue every `interval` seconds.
     Pick up the next OPEN task and run it through the ReAct graph.
@@ -61,6 +67,9 @@ async def task_loop(graph, data_dir: Path, interval: int = 30) -> None:
         next_open_task, mark_in_progress, mark_done, mark_failed
     )
 
+    if startup_delay:
+        logger.info(f"[task_loop] Startup delay {startup_delay}s")
+        await asyncio.sleep(startup_delay)
     logger.info(f"[task_loop] Started (interval={interval}s)")
     executing = asyncio.Lock()
     task = None
@@ -85,17 +94,18 @@ async def task_loop(graph, data_dir: Path, interval: int = 30) -> None:
                 prompt  = f"TASK [{task_id}]: {task['title']}\n\n{task['description']}"
 
                 loop   = asyncio.get_running_loop()
-                state  = await loop.run_in_executor(
-                    None,
-                    lambda: graph.invoke(
-                        {
-                            "message":        prompt,
-                            "session_id":     f"task-{task_id}",
-                            "max_iterations": 20,
-                        },
-                        config={"configurable": {"thread_id": f"task-{task_id}"}, "recursion_limit": 100},
-                    ),
-                )
+                async with _OLLAMA_SEM:
+                    state  = await loop.run_in_executor(
+                        None,
+                        lambda: graph.invoke(
+                            {
+                                "message":        prompt,
+                                "session_id":     f"task-{task_id}",
+                                "max_iterations": 20,
+                            },
+                            config={"configurable": {"thread_id": f"task-{task_id}"}, "recursion_limit": 100},
+                        ),
+                    )
                 result     = state.get("response", "No response").strip()
                 tools_ran  = state.get("_tools_ran", 0)
                 is_failure = "FAILED:" in result.upper()
@@ -443,8 +453,9 @@ def build_loops(config: dict, graph, data_dir: Path, agent_name: str) -> list:
         interval  = lc.get("interval_seconds", 30)
 
         if loop_type == "task_loop":
-            coroutines.append(task_loop(graph, data_dir, interval=interval))
-            logger.info(f"[loops] task_loop ({interval}s)")
+            delay = lc.get("startup_delay_seconds", 0)
+            coroutines.append(task_loop(graph, data_dir, interval=interval, startup_delay=delay))
+            logger.info(f"[loops] task_loop ({interval}s, delay={delay}s)")
 
         elif loop_type == "heartbeat_loop":
             coroutines.append(heartbeat_loop(data_dir, agent_name, interval=interval))
