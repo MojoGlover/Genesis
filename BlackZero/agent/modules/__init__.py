@@ -15,6 +15,7 @@ Usage:
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,8 +94,12 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
                                    cloud_fallback_model=config.get("model", {}).get("cloud_fallback", ""),
                                    cloud_provider=config.get("model", {}).get("provider", "ollama"),
                                    cloud_model=config.get("model", {}).get("cloud_model", ""),
-                                   task_ollama=config.get("model", {}).get("task_ollama", ""),
-                                   task_model=config.get("model", {}).get("task_model", ""),
+                                   # TASK_OLLAMA_URL/MODEL env vars override config — set per-plug
+                                   # in systemd EnvironmentFile for portability (RunPod, plugwan, etc.)
+                                   task_ollama=(os.environ.get("TASK_OLLAMA_URL")
+                                                or config.get("model", {}).get("task_ollama", "")),
+                                   task_model=(os.environ.get("TASK_OLLAMA_MODEL")
+                                               or config.get("model", {}).get("task_model", "")),
                                    model_map=config.get("models", {})),
         policy     = PolicyClient(agent_id, url("policy_gate", 9104),
                                   enabled=enabled("policy_gate")),
