@@ -1,5 +1,5 @@
 GOVERNANCE DECLARATION
-Researcher 0 — v2.0
+{AGENT_NAME} — v2.0
 
 This repository and all agents derived from it are governed by Computer Black.
 Computer Black is under the sole authority of Darnie Glover Jr. (Kris).

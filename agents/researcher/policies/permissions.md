@@ -1,5 +1,5 @@
 PERMISSIONS POLICY
-Researcher 0 — Base Template v2.0
+{AGENT_NAME} — Base Template v2.0
 
 This file defines what this agent is and is not permitted to do.
 This is the universal base inherited by all agents derived from BlackZero.

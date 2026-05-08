@@ -1,5 +1,5 @@
 RESILIENCE POLICY
-Teacher 0 — v1.0
+{AGENT_NAME} — v1.0
 
 This file defines how this agent maintains operational health, responds to degraded
 states, and recovers from failure. Resilience is not passive. It is an active

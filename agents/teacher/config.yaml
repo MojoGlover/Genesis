@@ -1,21 +1,61 @@
-agent:
-  name: teacher
-  designation: Teacher 0
-  role: TEACHER
-  autonomy_level: semi_autonomous
-  self_realized: false
-loop:
-  check_interval_seconds: 5
-  max_concurrent_tasks: 3
-  cycle_timeout_seconds: 60
-routing:
-  default: llama3.2:3b
-  fast: llama3.2:1b
-  code: codellama:7b
-capabilities:
-- curriculum_delivery
-- knowledge_indexing
-- assessment
-modules:
-- teacher
+identity:
+  designation: Teacher
+  alias: teacher
+  role: Explanation, teaching, tutoring, and knowledge transfer
+  owner: Computer Black
+  capabilities:
+  - chat
 data_dir: ~/.teacher
+port: 5022
+models:
+  chat: blackzero-hardened:latest
+  reasoning: blackzero-hardened:latest
+  fast: blackzero-hardened:latest
+  code: qwen2.5-coder:3b
+  embedding: all-mpnet-base-v2
+plugops:
+  url: https://plugzero-fmhdkkt4oq-uc.a.run.app
+  heartbeat_seconds: 10
+  reconnect_max_seconds: 30
+modules:
+  base_url: http://127.0.0.1
+  communication:
+    port: 9100
+    enabled: true
+  registry:
+    port: 9101
+    enabled: true
+  mind_state:
+    port: 9102
+    enabled: true
+  supervisor:
+    port: 9103
+    enabled: true
+  policy_gate:
+    port: 9104
+    enabled: true
+  tool_bus:
+    port: 9105
+    enabled: true
+  ledger:
+    port: 9106
+    enabled: true
+  scheduler:
+    port: 9107
+    enabled: false
+  observability:
+    port: 9108
+    enabled: true
+  model_gateway:
+    port: 9109
+    enabled: true
+logging:
+  level: INFO
+model:
+  provider: anthropic
+  cloud_model: claude-haiku-4-5
+  primary: ''
+  fallback: ''
+  task_provider: ollama
+  task_ollama: http://100.113.209.66:11434
+  task_model: phi4:14b

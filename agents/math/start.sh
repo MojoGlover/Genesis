@@ -1,11 +1,11 @@
 #!/bin/bash
-# start.sh — Start a BlackZero agent
+# start.sh — Start the Math agent
 # Usage: ./start.sh [agent_id]
-# Default: blackzero
+# Default: math
 
 set -e
 
-AGENT_ID="${1:-blackzero}"
+AGENT_ID="${1:-math}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Find mission file

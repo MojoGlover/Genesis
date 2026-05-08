@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Math Agent</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f0f; color: #eee; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #window { width: 420px; height: 600px; display: flex; flex-direction: column; background: #1a1a1a; border-radius: 16px; overflow: hidden; }
+  #header { padding: 16px 20px; background: #111; font-weight: 600; font-size: 15px; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; gap: 10px; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .bubble { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+  .user { align-self: flex-end; background: #6366f1; color: #fff; border-bottom-right-radius: 4px; }
+  .agent { align-self: flex-start; background: #2a2a2a; color: #eee; border-bottom-left-radius: 4px; }
+  .thinking { color: #555; font-style: italic; }
+  #footer { padding: 14px; border-top: 1px solid #2a2a2a; display: flex; gap: 10px; }
+  #input { flex: 1; background: #2a2a2a; border: none; border-radius: 10px; padding: 10px 14px; color: #eee; font-size: 14px; outline: none; }
+  #send { background: #6366f1; border: none; border-radius: 10px; padding: 10px 18px; color: #fff; font-size: 14px; cursor: pointer; }
+  #send:hover { background: #4f46e5; }
+</style>
+</head>
+<body>
+<div id="window">
+  <div id="header"><div id="dot"></div> Math</div>
+  <div id="messages"></div>
+  <div id="footer">
+    <input id="input" type="text" placeholder="Ask me anything..." autofocus>
+    <button id="send">Send</button>
+  </div>
+</div>
+<script>
+  const messages = document.getElementById('messages');
+  const input    = document.getElementById('input');
+  const send     = document.getElementById('send');
+
+  function addBubble(text, role) {
+    const b = document.createElement('div');
+    b.className = `bubble ${role}`;
+    b.textContent = text;
+    messages.appendChild(b);
+    messages.scrollTop = messages.scrollHeight;
+    return b;
+  }
+
+  async function sendMessage() {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addBubble(text, 'user');
+    const thinking = addBubble('thinking...', 'agent thinking');
+
+    try {
+      const r = await fetch('http://localhost:5007/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+      const data = await r.json();
+      thinking.className = 'bubble agent';
+      thinking.textContent = data.response || data.reply || '(no response)';
+    } catch (e) {
+      thinking.className = 'bubble agent';
+      thinking.textContent = 'Could not reach agent — is it running?';
+    }
+  }
+
+  send.addEventListener('click', sendMessage);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+</script>
+</body>
+</html>

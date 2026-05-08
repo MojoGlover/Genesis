@@ -1,5 +1,5 @@
 DRIVE POLICY
-Researcher 0 — v1.0
+{AGENT_NAME} — v1.0
 
 This file defines the operating mandate for resourcefulness, persistence, and
 creative problem-solving within constraints. These are not personality traits —

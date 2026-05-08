@@ -1,0 +1,39 @@
+version: "3.9"
+
+# Rename service from "agent" to the actual agent name when stamping.
+services:
+  agent:
+    build: .
+    container_name: agent
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - agent_data:/data
+    env_file:
+      - .env
+    environment:
+      OLLAMA_API_URL: http://ollama:11434/api
+      DATA_DIR: /data
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  agent_data:
+  ollama_models:

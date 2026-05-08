@@ -1,5 +1,5 @@
 INTER-AGENT COMMUNICATION PROTOCOL
-Researcher 0 — v1.0
+{AGENT_NAME} — v1.0
 
 This file defines how agents in the Computer Black ecosystem communicate with each other.
 All agents derived from BlackZero must follow this protocol.

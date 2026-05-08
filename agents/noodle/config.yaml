@@ -1,0 +1,68 @@
+identity:
+  designation: Noodle Papageorgiou
+  alias: noodle
+  role: Creative Director
+  owner: Computer Black
+  capabilities:
+  - chat
+  - creative_review
+  - creative_brief
+  - delegation
+data_dir: ~/.noodle
+port: 5007
+model:
+  provider: anthropic
+  cloud_model: claude-haiku-4-5
+  primary: blackzero-hardened:latest
+  fallback: blackzero-hardened:latest
+  cloud_fallback: claude-haiku-4-5
+  task_ollama: http://100.113.209.66:11434
+  task_model: phi4:14b
+models:
+  chat: noodle:latest
+  reasoning: noodle:latest
+  fast: noodle:latest
+  code: qwen2.5-coder:3b
+  embedding: all-mpnet-base-v2
+plugops:
+  url: https://plugzero-fmhdkkt4oq-uc.a.run.app
+  heartbeat_seconds: 10
+  reconnect_max_seconds: 30
+modules:
+  base_url: http://127.0.0.1
+  communication:
+    port: 9100
+    enabled: true
+  registry:
+    port: 9101
+    enabled: true
+  mind_state:
+    port: 9102
+    enabled: true
+    plugops_url: ''
+  supervisor:
+    port: 9103
+    enabled: true
+  policy_gate:
+    port: 9104
+    enabled: true
+  tool_bus:
+    port: 9105
+    enabled: true
+  ledger:
+    port: 9106
+    enabled: true
+  scheduler:
+    port: 9107
+    enabled: false
+  observability:
+    port: 9108
+    enabled: true
+  model_gateway:
+    port: 9109
+    enabled: true
+mobility:
+  enabled: false
+  plugops_url: https://plugzero-fmhdkkt4oq-uc.a.run.app
+logging:
+  level: INFO

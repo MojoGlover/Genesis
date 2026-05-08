@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -21,12 +22,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="BlackZero Agent")
+app = FastAPI(title="Math Agent")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-_agent_id: str       = "blackzero"
+_agent_id: str       = "math"
 _graph               = None
 _mods: "Modules | None" = None
-_data_dir: Path      = Path("~/.blackzero").expanduser()
+_data_dir: Path      = Path("~/.math").expanduser()
 _system_prompt: str  = ""
 
 

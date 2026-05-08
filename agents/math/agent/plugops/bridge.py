@@ -109,12 +109,11 @@ class PlugOpsBridge:
             logger.error(f"[bridge] Send failed: {e}")
             self._connected = False
 
-    async def send_response(self, to_agent: str, content: str) -> None:
-        await self.send({
-            "type": "chat",
-            "message": {"from_agent": self.agent_name,
-                        "to_agent": to_agent, "content": content},
-        })
+    async def send_response(self, to_agent: str, content: str, request_id: str = "") -> None:
+        msg: dict = {"from_agent": self.agent_name, "to_agent": to_agent, "content": content}
+        if request_id:
+            msg["request_id"] = request_id
+        await self.send({"type": "chat", "message": msg})
 
     async def _register(self) -> None:
         await self.send({
