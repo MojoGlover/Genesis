@@ -31,10 +31,13 @@ duration of a task and return results to her. When they go away, nothing is lost
 These have embeddings stored in Zee that make them who they are. Their
 personality, specialization, and skills are embedded — not configured.
 
-| Name | Identity |
-|------|----------|
-| EngineerV (Vee) | Fixed — defined by embeddings in Zee |
-| EngineerX (X) | Fixed — defined by embeddings in Zee |
+| Name | Domain |
+|------|--------|
+| EngineerV (Vee) | Architecture review, code quality enforcement, anti-pattern detection — absorbs Vandalay's former role |
+| EngineerX (X) | TBD — fixed identity defined by embeddings in Zee |
+
+Note: EngineerV's domain is distinct from Cerberus. Cerberus asks "is this safe?"
+EngineerV asks "is this well-built?" Different review lanes, no overlap.
 
 ### Generic Engineers (assignable)
 
