@@ -514,11 +514,58 @@ def make_tool_node(execute_tool, mods: "Modules"):
     return tool
 
 
+_SPEECH_SYSTEM = (
+    "You are a delivery layer. The agent has finished reasoning. "
+    "Your job: take the agent's output and deliver it to the user clearly, "
+    "concisely, and conversationally. Never add caveats, apologies, or meta-commentary. "
+    "If the output is already short and clean, return it unchanged. "
+    "Never invent information not present in the agent's output."
+)
+
+# Responses shorter than this are already clean — skip the speech pass.
+_SPEECH_SKIP_CHARS = 280
+
+
 def make_respond_node(mods: "Modules"):
     def respond(state: dict) -> dict:
         session_id = state.get("session_id", "default")
         message    = state.get("message", "")
         response   = state.get("response", "")
+
+        # ── Speech brain: fast delivery pass ──────────────────────────────────
+        # Only runs when:
+        #   - a speech model is configured (models.speech in config)
+        #   - the inference response is long enough to need polishing
+        #   - the response isn't already just a tool result (from_agent != "user" skips)
+        speech_model = mods.gateway._model_for("speech")
+        from_agent   = state.get("from_agent", "user")
+        if (speech_model
+                and speech_model != mods.gateway._model_for("chat")  # only if different model
+                and from_agent == "user"                              # skip agent-to-agent
+                and len(response) > _SPEECH_SKIP_CHARS):             # skip short responses
+            try:
+                result = mods.gateway.chat_for(
+                    messages=[
+                        {"role": "system",    "content": _SPEECH_SYSTEM},
+                        {"role": "user",      "content": f"User asked: {message}\n\nAgent output:\n{response}"},
+                    ],
+                    task_type="speech",
+                    max_tokens=1024,
+                    timeout=30.0,
+                )
+                polished = result.get("content", "").strip()
+                if polished:
+                    response = polished
+                    mods.ledger.record_llm(
+                        model_id      = result.get("model_id", "speech"),
+                        input_tokens  = result.get("input_tokens", 0),
+                        output_tokens = result.get("output_tokens", 0),
+                        cost_usd      = result.get("cost_usd", 0.0),
+                    )
+                    logger.debug(f"[respond] speech pass complete ({len(polished)} chars)")
+            except Exception as e:
+                logger.warning(f"[respond] speech pass failed: {e!r} — using raw response")
+
         mods.mind_state.save(session_id, message, response)
         mods.rag.index(session_id, message, response)
         mods.obs.beat(status="ok")
@@ -526,6 +573,7 @@ def make_respond_node(mods: "Modules"):
         # returned state so that callers (todo_loop, task_loop) can verify that
         # real tool execution happened before marking a task complete.
         return {**state,
+                "response":          response,
                 "tool_iterations":   0,
                 "tool_call_pending": False,
                 "force_rethink":     False}

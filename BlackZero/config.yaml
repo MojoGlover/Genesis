@@ -27,17 +27,23 @@ model:
   fallback:       "blackzero-hardened:latest"  # direct ollama fallback
   cloud_fallback: ""                       # last-resort Anthropic model
 
-# Per-task model routing (ollama path only — stamp.py rewrites these)
+# Per-task model routing (stamp.py rewrites these for each agent)
+# Split brain: inference models handle tool loops + reasoning (quality matters);
+# speech model handles final user-facing delivery (speed matters).
 models:
-  chat:      "blackzero-hardened:latest"
-  reasoning: "blackzero-hardened:latest"
-  fast:      "blackzero-hardened:latest"
-  code:      "qwen2.5-coder:3b"
+  chat:      "blackzero-hardened:latest"  # general conversation
+  reasoning: "blackzero-hardened:latest"  # tool use, problem solving
+  fast:      "blackzero-hardened:latest"  # mid-loop tool calls (must output JSON)
+  code:      "qwen2.5-coder:3b"           # code generation
   embedding: "all-mpnet-base-v2"
+  # Speech brain — takes inference output and delivers it to the user cleanly.
+  # Use a small fast model here: llama3.2:3b locally, or cloud haiku as fallback.
+  # If empty, respond node skips the speech pass and returns inference output as-is.
+  speech:    "llama3.2:3b"               # fast delivery layer
 
 # PlugOps bridge config
 plugops:
-  url:                   "https://plugzero-fmhdkkt4oq-uc.a.run.app"
+  url:                   "https://plugzero-581737577470.us-central1.run.app"
   heartbeat_seconds:     10
   reconnect_max_seconds: 30
   # Grid registration: agent's own reachable host + port, sent to PlugOps at register time.
@@ -99,7 +105,7 @@ modules:
 # Set enabled: true and plugops_url to activate the migration trigger loop.
 mobility:
   enabled: false
-  plugops_url: "https://plugzero-fmhdkkt4oq-uc.a.run.app"
+  plugops_url: "https://plugzero-581737577470.us-central1.run.app"
 
 logging:
   level: "INFO"
