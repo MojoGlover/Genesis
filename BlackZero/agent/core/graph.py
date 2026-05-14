@@ -446,17 +446,31 @@ def make_think_node(mods: "Modules", system_prompt: str):
         tool_call = parse_native_tool_call(result) or parse_tool_call(response_text)
         if tool_call:
             import json as _json
+            # Suppress spontaneous tool calls on conversational messages.
+            # Tool-trained models emit tool call JSON even without being offered tools.
+            # Re-prompt once rather than executing to prevent unintended side effects.
+            if not tool_required:
+                logger.info(f"[think] Suppressing tool call '{tool_call['tool']}' on chat message (tool_required=False)")
+                return {**state,
+                        "tool_history": tool_history + [
+                            {"role": "assistant",  "content": response_text},
+                            {"role": "tool_result", "content":
+                             "This is a conversational message. Answer directly without using any tools."},
+                        ],
+                        "tool_iterations":   iterations + 1,
+                        "tool_call_pending": False,
+                        "force_rethink":     True,
+                        "last_result":       {},
+                        "_last_result":      {}}
             logger.info(f"[think] Tool call: {tool_call['tool']}({list(tool_call.get('params', {}).keys())})")
-            # Normalise to text for tool_history regardless of whether the call
-            # came from native tool_calls or text parsing.
             tool_call_text = response_text or _json.dumps({"tool": tool_call["tool"], "params": tool_call.get("params", {})})
             return {**state,
                     "tool_history":     tool_history + [{"role": "assistant", "content": tool_call_text}],
                     "tool_iterations":  iterations + 1,
                     "tool_call_pending": True,
                     "force_rethink":    False,
-                    "last_result":     result,   # persist so tool_node can read native tool_calls
-                    "_last_result":    result,   # legacy alias — dual-write for test compat
+                    "last_result":     result,
+                    "_last_result":    result,
                     "response":         tool_call_text}
 
         # ── Fabrication detection — catches false completion claims ────────────
