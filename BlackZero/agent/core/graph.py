@@ -40,7 +40,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_ITERATIONS = 20
+MAX_TOOL_ITERATIONS  = 6   # hard cap for action tasks (_requires_tool_use = True)
+MAX_CHAT_TOOL_ITER   = 2   # cap for spontaneous tool use on conversational messages
 
 # Injected into every system prompt — makes fabrication structurally prohibited
 ANTI_HALLUCINATION_RULES = """
@@ -69,6 +70,9 @@ def _looks_like_tool_attempt(text: str) -> bool:
     if '"params"' in lowered or "'params'" in lowered:
         return True
     if "```json" in lowered and "tool" in lowered:
+        return True
+    # OpenAI/Ollama native format: {"name": "...", "arguments": {...}}
+    if '"name"' in lowered and '"arguments"' in lowered:
         return True
     return False
 
@@ -133,19 +137,43 @@ def _requires_tool_use(message: str) -> bool:
         if re.search(r"/[A-Za-z0-9_\-\.]+/[A-Za-z0-9_\-\./]+", message):
             return True
 
-    # Diagnostic terms — require evidence
-    diagnostic_terms = (
+    # Diagnostic terms — always require tools (specific technical failures)
+    diagnostic_terms_always = (
         "diagnose", "debug", "broken", "failure", "failing",
         "unable to connect", "can't connect", "cannot connect",
-        "why is", "what's wrong", "whats wrong",
     )
-    if any(term in lowered for term in diagnostic_terms):
+    if any(term in lowered for term in diagnostic_terms_always):
         return True
+    # Vague diagnostic questions only require tools when a path/service is mentioned —
+    # avoids triggering on conversational messages like "why is my phone slow?"
+    diagnostic_terms_with_path = ("why is", "what's wrong", "whats wrong")
+    if any(term in lowered for term in diagnostic_terms_with_path):
+        if re.search(r"/[A-Za-z0-9_\-\.]+/[A-Za-z0-9_\-\./]+", message):
+            return True
 
     # Explicit file path in message — any path reference requires real I/O
     if re.search(r"/[A-Za-z0-9_\-\.]+/[A-Za-z0-9_\-\./]+", message):
         return True
 
+    return False
+
+
+def _any_tool_attempted(tool_history: list[dict]) -> bool:
+    """True if at least one real tool execution result exists (even a failed one).
+    Breaks the tool-use enforcement loop when tools were tried but all failed."""
+    repair_prefixes = (
+        "Tool call could not be parsed.",
+        "Malformed tool call.",
+        "STOP. You have not called any tools yet",
+        "FABRICATION DETECTED.",
+    )
+    for entry in tool_history:
+        if entry.get("role") != "tool_result":
+            continue
+        content = entry.get("content", "")
+        if any(content.startswith(prefix) for prefix in repair_prefixes):
+            continue
+        return True
     return False
 
 
@@ -182,13 +210,28 @@ def _has_grounding_result(tool_history: list[dict]) -> bool:
 
 
 def _tools_called(tool_history: list[dict]) -> set[str]:
-    """Return the set of tool names actually executed in this session."""
+    """Return the set of tool names that ran AND succeeded in this session.
+    Pairs each assistant entry with the following tool_result; excludes failures."""
+    error_prefixes = ("error:", "unknown tool:", "policy denied:", "tool error:")
     called = set()
-    for entry in tool_history:
-        if entry.get("role") == "assistant":
-            tc = parse_tool_call(entry.get("content", ""))
-            if tc:
-                called.add(tc.get("tool", ""))
+    entries = tool_history
+    for i, entry in enumerate(entries):
+        if entry.get("role") != "assistant":
+            continue
+        tc = parse_tool_call(entry.get("content", ""))
+        if not tc:
+            continue
+        result_entry = None
+        for j in range(i + 1, len(entries)):
+            if entries[j].get("role") == "tool_result":
+                result_entry = entries[j]
+                break
+        if result_entry is None:
+            continue
+        result_content = result_entry.get("content", "").lower()
+        if any(result_content.startswith(p) for p in error_prefixes):
+            continue
+        called.add(tc.get("tool", ""))
     return called
 
 
@@ -271,27 +314,35 @@ def make_recall_node(mods: "Modules"):
     def recall(state: dict) -> dict:
         session_id = state.get("session_id", "default")
         message    = state.get("message", "")
-        if data_dir := state.get("_data_dir"):
+        if data_dir := state.get("data_dir", state.get("_data_dir", "")):
             mods.mind_state.set_fallback_dir(Path(data_dir))
 
         # Recent turns (recency-based context)
         recent = mods.mind_state.get_recent(session_id, limit=4)
 
-        # Semantic memory — find relevant past exchanges beyond the last 4 turns
-        semantic = mods.rag.search(message, k=3)
+        # Semantic memory — find relevant past exchanges beyond the last 4 turns.
+        # Skip for short messages — not worth the overhead for simple greetings.
+        semantic = mods.rag.search(message, k=3) if len(message) > 80 else []
 
         # Merge: recent first, then semantic hits not already in recent
         recent_set = set(recent)
         merged = recent + [s for s in semantic if s not in recent_set]
 
+        # Always reset max_iterations so stale checkpoints don't carry an old value.
+        # tool_required caps spontaneous tool loops to MAX_CHAT_TOOL_ITER.
         return {
             **state,
             "memory_context":    merged,
             "tool_history":      [],
             "tool_iterations":   0,
+            "max_iterations":    MAX_TOOL_ITERATIONS,
+            "tool_required":     _requires_tool_use(message),
             "tool_call_pending": False,
             "force_rethink":     False,
-            "_tools_ran":        0,   # counts real tool executions (NOT cleared by respond)
+            "tools_ran":        0,
+            "_tools_ran":       0,
+            "last_result":      {},
+            "_last_result":     {},
         }
     return recall
 
@@ -301,19 +352,48 @@ def make_think_node(mods: "Modules", system_prompt: str):
         message      = state.get("message", "")
         memory       = state.get("memory_context", [])
         tool_history = state.get("tool_history", [])
-        iterations   = state.get("tool_iterations", 0)
-        max_iter     = state.get("max_iterations", MAX_TOOL_ITERATIONS)
+        iterations    = state.get("tool_iterations", 0)
+        tool_required = state.get("tool_required", False)
+        max_iter      = state.get("max_iterations", MAX_TOOL_ITERATIONS)
+        # Spontaneous tool use on conversational messages: cap at MAX_CHAT_TOOL_ITER.
+        if not tool_required:
+            max_iter = min(max_iter, MAX_CHAT_TOOL_ITER)
 
         if iterations >= max_iter:
             logger.warning(f"[think] max iterations ({max_iter}) reached")
-            summary = "Reached tool call limit. Here's what I accomplished:\n"
+            # FAILED: prefix so task loops route to mark_failed, not mark_done.
+            summary = "FAILED: max iterations reached without completing the task. Partial work:\n"
             for entry in tool_history:
                 if entry["role"] == "tool_result":
-                    summary += f"\n- {entry['content'][:200]}"
+                    summary += f"\n- {entry['content'][:1000]}"
             return {**state, "response": summary, "tool_call_pending": False}
 
-        # Anti-hallucination rules + tool docs injected into every system prompt
-        system = f"{system_prompt}\n\n{ANTI_HALLUCINATION_RULES}\n\n{TOOL_DOCS}"
+        # Pick model tier early — needed to decide whether TOOL_DOCS is included.
+        if iterations > 0 or tool_history:
+            task_type = "fast"
+        elif _requires_tool_use(message):
+            task_type = "reasoning"
+        else:
+            task_type = "chat"
+
+        use_native_tools = (task_type in ("reasoning", "fast", "code"))
+
+        # Include TOOL_DOCS and ANTI_HALLUCINATION_RULES only when tools are in play.
+        # For plain chat, injecting anti-hallucination rules causes the model to
+        # attempt tool calls for conversational messages (rule 2: "output ONLY a
+        # tool call JSON block"), which escalates greetings into the heavy inference
+        # path and runs shell commands on "hey".
+        if use_native_tools or tool_history:
+            system = f"{system_prompt}\n\n{ANTI_HALLUCINATION_RULES}\n\n{TOOL_DOCS}"
+        elif task_type == "chat":
+            system = system_prompt
+        else:
+            system = f"{system_prompt}\n\n{ANTI_HALLUCINATION_RULES}"
+
+        # Cap tool history before building messages — prevents context explosion on long tasks.
+        _MAX_TOOL_HISTORY = 30
+        if len(tool_history) > _MAX_TOOL_HISTORY:
+            tool_history = tool_history[-_MAX_TOOL_HISTORY:]
 
         if tool_history:
             parts = []
@@ -330,7 +410,8 @@ def make_think_node(mods: "Modules", system_prompt: str):
             parts = []
             if memory:
                 parts.append("Previous conversation:\n" + "\n".join(memory))
-            parts.append(f"Task: {message}")
+            # "Task:" prefix primes the model for execution. Plain message for chat.
+            parts.append(message if task_type == "chat" else f"Task: {message}")
             human_content = "\n\n".join(parts)
 
         messages = [
@@ -338,22 +419,8 @@ def make_think_node(mods: "Modules", system_prompt: str):
             {"role": "user",   "content": human_content},
         ]
 
-        # Pick model tier based on task complexity.
-        # Tool execution iterations always use the fast/tools model (JSON format required).
-        # First-pass reasoning on heavy tasks routes to the larger model.
-        if iterations > 0 or tool_history:
-            task_type = "fast"
-        elif _requires_tool_use(message):
-            task_type = "reasoning"
-        else:
-            task_type = "chat"
-
-        # Pass Ollama native tool definitions when the task requires tool use.
-        # This switches Ollama from "hope the model outputs JSON" to enforced
-        # structured tool_calls output — the model cannot respond with prose
-        # when a tool call is expected.
-        use_native_tools = (task_type in ("reasoning", "fast", "code"))
-        tools_payload    = OLLAMA_TOOL_DEFS if use_native_tools else None
+        # tool definitions payload — already determined above with task_type
+        tools_payload = OLLAMA_TOOL_DEFS if use_native_tools else None
 
         logger.debug(f"[think] LLM call #{iterations + 1} task_type={task_type} native_tools={use_native_tools}")
         try:
@@ -388,13 +455,19 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     "tool_iterations":  iterations + 1,
                     "tool_call_pending": True,
                     "force_rethink":    False,
-                    "_last_result":     result,   # persist so tool_node can read native tool_calls
+                    "last_result":     result,   # persist so tool_node can read native tool_calls
+                    "_last_result":    result,   # legacy alias — dual-write for test compat
                     "response":         tool_call_text}
 
         # ── Fabrication detection — catches false completion claims ────────────
         fabrication_msg = _detect_fabrication(response_text, tool_history)
-        if fabrication_msg and iterations + 1 < max_iter:
+        if fabrication_msg:
             logger.warning("[think] Fabrication detected — injecting correction")
+            if iterations + 1 >= max_iter:
+                return {**state,
+                        "response":          f"FAILED: fabricated completion detected on final iteration. {response_text[:200]}",
+                        "tool_call_pending": False,
+                        "force_rethink":     False}
             return {**state,
                     "tool_history": tool_history + [
                         {"role": "assistant",  "content": response_text},
@@ -403,6 +476,8 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     "tool_iterations":   iterations + 1,
                     "tool_call_pending": False,
                     "force_rethink":     True,
+                    "last_result":      {},
+                    "_last_result":     {},
                     "response":          ""}
 
         # ── Malformed tool call — send back for repair ─────────────────────────
@@ -410,9 +485,11 @@ def make_think_node(mods: "Modules", system_prompt: str):
             logger.warning("[think] Malformed tool call — routing to repair")
             return {**state,
                     "tool_history":     tool_history + [{"role": "assistant", "content": response_text}],
-                    "tool_iterations":  iterations + 1,
+                    "tool_iterations":  iterations,   # don't increment; only the repair rethink counts
                     "tool_call_pending": True,
                     "force_rethink":    False,
+                    "last_result":      {},
+                    "_last_result":     {},
                     "response":         response_text}
 
         # Tool-use enforcement — any action or diagnostic task must use tools before responding.
@@ -421,7 +498,8 @@ def make_think_node(mods: "Modules", system_prompt: str):
         # pass and get the iteration-limit summary — which is better than a hallucinated
         # "completion" slipping through on the last allowed iteration.
         if (_requires_tool_use(message) and
-                not _has_grounding_result(tool_history)):
+                not _has_grounding_result(tool_history) and
+                not _any_tool_attempted(tool_history)):
             logger.warning("[think] Action task answered without any tool calls — forcing tool use")
             # Extract the first concrete action from the message to guide the next call
             first_action = message.strip().split("\n")[0][:120]
@@ -442,12 +520,13 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     "force_rethink":    True,
                     "response":         ""}
 
-        # Plain text — done; clear _last_result so stale native tool calls don't replay
+        # Plain text — done; clear last_result so stale native tool calls don't replay
         return {**state,
                 "response":         response_text,
                 "tool_call_pending": False,
-                "tool_iterations":  iterations + 1,
+                "tool_iterations":  iterations,
                 "force_rethink":    False,
+                "last_result":      {},
                 "_last_result":     {}}
 
     return think
@@ -457,7 +536,7 @@ def make_tool_node(execute_tool, mods: "Modules"):
     def tool(state: dict) -> dict:
         # Try native tool_calls format first (from gateway result stored in state),
         # then fall back to text parsing from the response string.
-        tool_call = parse_native_tool_call(state.get("_last_result", {})) \
+        tool_call = parse_native_tool_call(state.get("last_result", state.get("_last_result", {}))) \
                  or parse_tool_call(state.get("response", ""))
         if not tool_call:
             logger.warning("[tool] No valid tool call — injecting repair hint")
@@ -470,8 +549,9 @@ def make_tool_node(execute_tool, mods: "Modules"):
                         {"role": "tool_result", "content": repair}
                     ],
                     "tool_call_pending": False,
-                    "force_rethink":     True,   # route back to think so repair hint fires
-                    "_last_result":      {}}
+                    "force_rethink":     True,
+                    "last_result":      {},
+                    "_last_result":     {}}
 
         tool_name = tool_call.get("tool", "")
         params    = tool_call.get("params", {})
@@ -504,11 +584,15 @@ def make_tool_node(execute_tool, mods: "Modules"):
             lowered_result.startswith("error:")
         )
 
+        new_tools_ran = state.get("tools_ran", state.get("_tools_ran", 0)) + (1 if real_execution else 0)
         return {**state,
                 "tool_history": state.get("tool_history", []) + [
                     {"role": "tool_result", "content": result_str}
                 ],
-                "_tools_ran":        state.get("_tools_ran", 0) + (1 if real_execution else 0),
+                "tools_ran":        new_tools_ran,
+                "_tools_ran":       new_tools_ran,
+                "last_result":      {},   # clear so stale native tool_calls can't replay
+                "_last_result":     {},
                 "tool_call_pending": False}
 
     return tool

@@ -28,5 +28,10 @@ class AgentState(BaseModel):
     # ReAct loop fields
     tool_history: list[dict] = Field(default_factory=list)  # [{role, content}] accumulated turns
     tool_iterations: int = 0
-    max_iterations: int = 10
+    max_iterations: int = 6    # must match MAX_TOOL_ITERATIONS in graph.py
+    tool_required: bool = False  # True when _requires_tool_use matched the message
     tool_call_pending: bool = False
+    force_rethink: bool = False
+    tools_ran: int = 0
+    last_result: dict = Field(default_factory=dict)
+    data_dir: str = ""
