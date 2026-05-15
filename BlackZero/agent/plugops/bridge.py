@@ -170,10 +170,15 @@ class PlugOpsBridge:
             if not self._should_run:
                 break
             try:
-                await self._client.post(
+                r = await self._client.post(
                     f"{self.base_url}/api/v1/agents/{self.agent_id}/heartbeat"
                 )
-                logger.debug("[bridge] heartbeat sent")
+                if r.status_code == 404:
+                    # PlugOps lost this agent (cold restart resets in-memory registry).
+                    logger.warning("[bridge] heartbeat 404 — PlugOps registry reset; re-registering")
+                    await self._register()
+                else:
+                    logger.debug("[bridge] heartbeat sent")
             except Exception as e:
                 logger.warning(f"[bridge] heartbeat failed: {e!r}")
 

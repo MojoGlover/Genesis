@@ -1,0 +1,19 @@
+id: satellite.plugwan
+kind: satellite
+name: Plugwan
+status: active
+lifecycle: active
+description: Mac laptop. Dev machine and heavy-model host. Not always-on.
+tailscale_ref: env.PLUGWAN_TAILSCALE  # 100.113.209.66
+capabilities:
+  - inference: all production models + llama3.3:70b, qwen2.5-coder:14b, llava-phi3
+  - agents: madjanet (launchd, port 5003), accountant (launchd, port 5002), ceo (launchd, port 5008)
+locality: local
+always_on: false
+policy:
+  allow_agent_migration: true
+  confirmation_required: false
+health:
+  check: "curl http://100.113.209.66:11434/api/tags"
+  interval_seconds: 120
+  note: "Expect disconnected when laptop is asleep. Disconnected != retired."

@@ -1,0 +1,14 @@
+id: tool.local.python_repl
+kind: tool
+name: Python REPL
+status: active
+lifecycle: active
+adapter: agent.tools.python_repl
+description: Execute Python code in a sandboxed subprocess.
+risk_level: high
+side_effects: local
+allowed_modes: [act, repair]
+policy:
+  confirmation_required: false
+  blocked_in: [explore, audit]
+  note: "Subprocess isolation limits blast radius but does not prevent filesystem access."

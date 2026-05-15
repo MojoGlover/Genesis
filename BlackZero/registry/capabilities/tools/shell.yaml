@@ -1,0 +1,19 @@
+id: tool.local.shell
+kind: tool
+name: Shell
+status: active
+lifecycle: active
+adapter: agent.tools.shell
+description: Execute shell commands on the local host.
+risk_level: high
+side_effects: local
+allowed_modes: [act, repair]
+policy:
+  confirmation_required: conditional   # required for destructive patterns (rm -rf, etc.)
+  blocked_in: [explore, audit]
+  destructive_patterns:
+    - "rm -rf"
+    - "git reset --hard"
+    - "git push --force"
+    - "drop table"
+    - "mkfs"

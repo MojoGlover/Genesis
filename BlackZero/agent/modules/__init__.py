@@ -30,6 +30,7 @@ from agent.modules.scheduler      import SchedulerClient
 from agent.modules.tool_bus       import ToolBusClient
 from agent.modules.rag            import RAGClient
 from agent.modules.grid           import GridResolver
+from agent.modules.evidence       import EvidenceLedger
 
 
 @dataclass
@@ -45,6 +46,7 @@ class Modules:
     tool_bus:  ToolBusClient
     rag:       RAGClient
     grid:      GridResolver
+    evidence:  EvidenceLedger
 
     def summary(self) -> str:
         enabled = []
@@ -58,7 +60,7 @@ class Modules:
         if self.scheduler.enabled: enabled.append("scheduler")
         if self.tool_bus.enabled:  enabled.append("tool_bus")
         if self.rag.enabled:       enabled.append("rag")
-        # grid is always available — no enabled flag (pure resolver, no daemon)
+        # grid and evidence are always available — no enabled flag
         return f"enabled=[{', '.join(enabled)}]"
 
 
@@ -71,7 +73,7 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
     _plugops_url = (
         config.get("plugops", {}).get("url")
         or mods_cfg.get("plugops_url")
-        or "https://plugzero-fmhdkkt4oq-uc.a.run.app"
+        or "https://plugzero-581737577470.us-central1.run.app"
     )
 
     def url(name: str, default_port: int) -> str:
@@ -118,4 +120,5 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
                                agent_id=agent_id,
                                enabled=enabled("rag", True)),
         grid       = GridResolver(plugops_base=_plugops_url),
+        evidence   = EvidenceLedger(data_dir or Path(f"~/.{agent_id}").expanduser()),
     )

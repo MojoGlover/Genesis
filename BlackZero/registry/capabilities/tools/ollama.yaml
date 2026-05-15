@@ -1,0 +1,13 @@
+id: tool.local.ollama
+kind: tool
+name: Ollama Manager
+status: active
+lifecycle: active
+adapter: agent.tools.ollama_tool
+description: Manage local Ollama models — list, pull, create, generate, check running.
+risk_level: medium
+side_effects: local   # pull downloads large files
+allowed_modes: [explore, act, repair, audit]
+policy:
+  confirmation_required: conditional   # required for pull (disk space) and create
+  blocked_in: []

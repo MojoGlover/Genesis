@@ -1,0 +1,22 @@
+id: model.base.blackzero_hardened
+kind: model
+name: BlackZero Hardened
+status: active
+lifecycle: active
+provider: ollama
+model_name: blackzero-hardened:latest
+strengths:
+  - general reasoning
+  - instruction following
+  - base capability for agents without a custom model (CEO, Concierge)
+weaknesses:
+  - domain-specific tasks (use a dedicated agent model instead)
+allowed_modes: [explore, plan, act, repair, audit]
+risk_level: low
+locality:
+  - plugfoe
+  - plugwan
+policy:
+  allow_private_context: true
+  allow_external_calls: false
+  confirmation_required: false

@@ -1,0 +1,15 @@
+id: endpoint.plugops.websocket
+kind: endpoint
+name: PlugOps WebSocket Bridge
+status: active
+lifecycle: active
+method: WebSocket
+base_path: /ws/{agent_id}
+host_ref: env.PLUGOPS_WS_BASE
+owner: plugops
+side_effects: true
+description: Persistent bidirectional channel. Agent receives messages from PlugOps
+  and sends responses back. Primary real-time communication path.
+policy:
+  confirmation_required: false
+  note: "Bridge reconnects automatically on disconnect. SSE inbox relay for cross-host delivery."

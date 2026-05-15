@@ -1,0 +1,58 @@
+# lifecycle/states.yaml
+# Canonical lifecycle and health state definitions.
+# Every capability manifest must declare one of these lifecycle values.
+# Health is tracked separately — a component can be active but unhealthy.
+
+lifecycle_states:
+
+  active:
+    description: Fully operational. Normal routing applies.
+    routable: true
+    repair_required: false
+
+  experimental:
+    description: Under evaluation. Routable only in non-production modes (explore, plan).
+    routable: true
+    allowed_modes: [explore, plan]
+    repair_required: false
+
+  quarantined:
+    description: Isolated due to suspected failure, security concern, or policy violation.
+      Preserved for triage. Not routable.
+    routable: false
+    repair_required: true
+    note: "Do not delete. Attach failure_reason and repair_notes before re-admission."
+
+  repairable:
+    description: Known broken but salvageable. Awaiting fix. Not routable.
+    routable: false
+    repair_required: true
+
+  retired:
+    description: Intentionally decommissioned. Preserved for audit trail. Not routable.
+    routable: false
+    repair_required: false
+    note: "Retirement is permanent intent, not a temporary state. Use quarantine for uncertain cases."
+
+  archived:
+    description: Moved to cold storage. Not routable. Metadata retained.
+    routable: false
+    repair_required: false
+
+health_states:
+
+  healthy:
+    description: Responding within expected parameters.
+
+  degraded:
+    description: Responding but with elevated latency, partial failures, or reduced capacity.
+
+  disconnected:
+    description: Not reachable. Could be transient (network) or permanent (decommissioned).
+    note: "Disconnected is not the same as retired. Do not change lifecycle based on connectivity alone."
+
+  unknown:
+    description: Health has not been checked recently or check failed ambiguously.
+
+  failing:
+    description: Consistently returning errors or crashing.

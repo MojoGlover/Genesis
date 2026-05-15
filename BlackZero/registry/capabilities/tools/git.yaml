@@ -1,0 +1,13 @@
+id: tool.local.git
+kind: tool
+name: Git
+status: active
+lifecycle: active
+adapter: agent.tools.git_tool
+description: Run git operations — status, diff, log, commit, push, branch.
+risk_level: high
+side_effects: remote   # push affects shared remotes
+allowed_modes: [explore, act, repair]
+policy:
+  confirmation_required: conditional   # required for push, reset --hard, force operations
+  blocked_in: [audit]

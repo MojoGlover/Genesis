@@ -1,0 +1,19 @@
+id: satellite.plugtoo
+kind: satellite
+name: PlugToo (Tablet)
+status: active
+lifecycle: active
+description: Teclast Android tablet. MadJanet's primary device. Small models only. Opportunistic — not always-on.
+tailscale_ref: env.PLUGTREE_TAILSCALE  # 100.103.47.83
+capabilities:
+  - inference: llama3.2:3b (small/fast, mobile inference)
+  - app: MadJanet tablet app (React Native / Expo, Plug2)
+locality: local
+always_on: false
+policy:
+  allow_agent_migration: false   # too small for full agent runtime
+  confirmation_required: false
+health:
+  check: "curl http://100.103.47.83:11434/api/tags"
+  interval_seconds: 120
+  note: "Tablet Ollama is tier-1 for MadJanet only (llama3.2:3b). All other agents skip this node."

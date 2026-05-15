@@ -1,0 +1,23 @@
+id: model.cloud.claude_haiku
+kind: model
+name: Claude Haiku
+status: active
+lifecycle: active
+provider: anthropic
+model_name: claude-haiku-4-5-20251001
+strengths:
+  - fast cloud inference
+  - reliable fallback when local models are unavailable
+  - good instruction following
+weaknesses:
+  - requires internet and API key
+  - incurs cost per call
+allowed_modes: [explore, plan, act]
+risk_level: medium
+locality:
+  - cloud
+policy:
+  allow_private_context: false   # external provider — do not send sensitive data
+  allow_external_calls: true
+  confirmation_required: false
+  requires_env: ANTHROPIC_API_KEY

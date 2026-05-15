@@ -1,0 +1,13 @@
+id: tool.local.files
+kind: tool
+name: File System
+status: active
+lifecycle: active
+adapter: agent.tools.files
+description: Read, write, patch, and list files on the local filesystem.
+risk_level: medium
+side_effects: local
+allowed_modes: [explore, plan, act, repair, audit]
+policy:
+  confirmation_required: conditional   # required for writes outside agent data_dir
+  blocked_in: []

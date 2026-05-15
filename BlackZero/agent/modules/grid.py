@@ -17,7 +17,7 @@ while still picking up location changes within a reasonable window.
 
 Usage:
     from agent.modules.grid import GridResolver
-    grid = GridResolver(plugops_base="https://plugzero-fmhdkkt4oq-uc.a.run.app")
+    grid = GridResolver(plugops_base="https://plugzero-581737577470.us-central1.run.app")
 
     url = grid.resolve("engineer0")          # → "http://178.105.62.143:5001"
     url = grid.resolve("engineer0", "/api/chat")  # → "http://178.105.62.143:5001/api/chat"

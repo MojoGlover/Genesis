@@ -320,13 +320,14 @@ async def todo_loop(
                 )
 
                 loop_  = asyncio.get_running_loop()
-                state  = await loop_.run_in_executor(
-                    None,
-                    lambda: graph.invoke(
-                        {"message": prompt, "session_id": f"todo-{item_idx}", "max_iterations": 30},
-                        config={"configurable": {"thread_id": f"todo-{item_idx}"}, "recursion_limit": 150},
-                    ),
-                )
+                async with _OLLAMA_SEM:
+                    state  = await loop_.run_in_executor(
+                        None,
+                        lambda: graph.invoke(
+                            {"message": prompt, "session_id": f"todo-{item_idx}", "max_iterations": 30},
+                            config={"configurable": {"thread_id": f"todo-{item_idx}"}, "recursion_limit": 150},
+                        ),
+                    )
                 result = state.get("response", "No response").strip()
 
                 # Verify completion.
@@ -408,7 +409,7 @@ def build_migration_trigger(config: dict, agent_id: str, agent_name: str, mods) 
     config.yaml:
       mobility:
         enabled: true
-        plugops_url: "https://plugzero-fmhdkkt4oq-uc.a.run.app"
+        plugops_url: "https://plugzero-581737577470.us-central1.run.app"
     """
     mob = config.get("mobility", {})
     if not mob.get("enabled", False):

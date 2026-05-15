@@ -1,0 +1,23 @@
+id: model.code.qwen_coder_7b
+kind: model
+name: Qwen2.5 Coder 7B
+status: active
+lifecycle: active
+provider: ollama
+model_name: qwen2.5-coder:7b
+strengths:
+  - code generation
+  - code completion
+  - technical JSON/structured output
+weaknesses:
+  - general conversation
+  - long reasoning chains
+allowed_modes: [explore, plan, act, repair]
+risk_level: low
+locality:
+  - plugfoe
+  - plugwan
+policy:
+  allow_private_context: true
+  allow_external_calls: false
+  confirmation_required: false

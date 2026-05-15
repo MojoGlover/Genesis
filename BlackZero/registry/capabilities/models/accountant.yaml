@@ -1,0 +1,22 @@
+id: model.agent.accountant
+kind: model
+name: Accountant
+status: active
+lifecycle: active
+provider: ollama
+model_name: accountant:latest
+strengths:
+  - financial tracking and reporting
+  - cost analysis
+  - budget enforcement
+weaknesses:
+  - general reasoning outside finance domain
+allowed_modes: [explore, plan, act, audit]
+risk_level: medium
+locality:
+  - plugfoe
+  - plugwan
+policy:
+  allow_private_context: true
+  allow_external_calls: false
+  confirmation_required: conditional   # required for budget changes

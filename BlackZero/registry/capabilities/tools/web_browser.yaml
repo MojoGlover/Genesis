@@ -1,0 +1,15 @@
+id: tool.local.web_browser
+kind: tool
+name: Web Browser (Playwright)
+status: experimental
+lifecycle: experimental
+adapter: agent.tools.web_browser
+description: Automate a real browser — navigate, read, fill forms, click, screenshot.
+risk_level: medium
+side_effects: remote   # form submissions, logins affect external services
+allowed_modes: [explore, act]
+policy:
+  confirmation_required: conditional   # required for form submission and login actions
+  blocked_in: [audit]
+  requires_dep: playwright
+  note: "Soft dependency — raises RuntimeError if playwright not installed. Install with: playwright install chromium"

@@ -1,0 +1,23 @@
+id: model.agent.engineer0
+kind: model
+name: Engineer0
+status: active
+lifecycle: active
+provider: ollama
+model_name: engineer0:latest
+strengths:
+  - code generation and review
+  - shell and filesystem tasks
+  - infra debugging
+  - multi-step tool use
+weaknesses:
+  - broad general knowledge (smaller context than cloud models)
+allowed_modes: [explore, plan, act, repair, audit]
+risk_level: medium
+locality:
+  - plugfoe
+  - plugwan
+policy:
+  allow_private_context: true
+  allow_external_calls: true
+  confirmation_required: false

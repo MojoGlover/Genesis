@@ -1,0 +1,23 @@
+id: model.agent.cerberus
+kind: model
+name: Cerberus
+status: active
+lifecycle: active
+provider: ollama
+model_name: cerberus:latest
+strengths:
+  - security policy enforcement
+  - threat detection
+  - audit and integrity scanning
+weaknesses:
+  - general task execution
+allowed_modes: [explore, audit, quarantine, repair]
+risk_level: low
+locality:
+  - plugfoe
+  - plugwan
+policy:
+  allow_private_context: true
+  allow_external_calls: false
+  confirmation_required: conditional   # required for quarantine/block actions
+  authority: highest   # Cerberus decisions override all others

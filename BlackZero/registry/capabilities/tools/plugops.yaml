@@ -1,0 +1,14 @@
+id: tool.remote.plugops
+kind: tool
+name: PlugOps Grid Messenger
+status: active
+lifecycle: active
+adapter: agent.tools.plugops_tool
+description: Send messages to agents on the Computer Black grid via PlugOps. List agents, check status.
+risk_level: medium
+side_effects: remote
+allowed_modes: [explore, act, audit]
+policy:
+  confirmation_required: false
+  blocked_in: []
+  note: "Messages are delivered to other agents. Treat as inter-agent communication, not fire-and-forget."

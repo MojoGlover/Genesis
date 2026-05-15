@@ -1,0 +1,21 @@
+id: satellite.plugfoe
+kind: satellite
+name: Plugfoe
+status: active
+lifecycle: active
+description: Hetzner VPS. Always-on production runtime. Primary host for all production agents.
+host_ref: env.PLUGFOE_HOST          # 178.105.62.143
+tailscale_ref: env.PLUGFOE_TAILSCALE  # 100.67.171.41
+ssh_ref: env.PLUGFOE_SSH
+capabilities:
+  - inference: all production agent models (engineer0, madjanet, accountant, cerberus, blackzero-hardened, phi4:14b, qwen2.5-coder:7b)
+  - agents: engineer0 (systemd, port 5001)
+  - plugops_satellite: port 9000
+locality: remote
+always_on: true
+policy:
+  allow_agent_migration: true
+  confirmation_required: conditional   # required for systemctl stop/restart of production services
+health:
+  check: "curl http://178.105.62.143:9000/health"
+  interval_seconds: 60

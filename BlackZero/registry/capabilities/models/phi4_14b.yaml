@@ -1,0 +1,23 @@
+id: model.reasoning.phi4_14b
+kind: model
+name: Phi-4 14B
+status: active
+lifecycle: active
+provider: ollama
+model_name: phi4:14b
+strengths:
+  - deep reasoning
+  - long-context synthesis
+  - code analysis
+weaknesses:
+  - higher latency than smaller models
+  - not suitable for time-sensitive loops
+allowed_modes: [explore, plan, act, audit]
+risk_level: low
+locality:
+  - plugfoe
+  - plugwan
+policy:
+  allow_private_context: true
+  allow_external_calls: false
+  confirmation_required: false

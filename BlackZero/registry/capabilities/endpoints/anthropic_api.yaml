@@ -1,0 +1,18 @@
+id: endpoint.anthropic.messages
+kind: endpoint
+name: Anthropic Messages API
+status: active
+lifecycle: active
+method: POST
+base_path: /v1/messages
+host_ref: https://api.anthropic.com
+healthcheck: null
+owner: anthropic
+side_effects: false
+description: Cloud LLM inference. Last-resort fallback when all local models fail.
+  Incurs cost per call.
+policy:
+  confirmation_required: false
+  requires_env: ANTHROPIC_API_KEY
+  allow_private_context: false
+  note: "External provider. Do not send user PII or proprietary code without explicit approval."

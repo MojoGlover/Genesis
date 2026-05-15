@@ -1,0 +1,16 @@
+id: endpoint.ollama.local
+kind: endpoint
+name: Ollama Local API
+status: active
+lifecycle: active
+method: POST
+base_path: /api
+host_ref: env.OLLAMA_LOCAL_URL   # defaults to http://127.0.0.1:11434
+healthcheck: /api/tags
+owner: ollama
+side_effects: false
+description: Local Ollama inference endpoint. All LLM calls from the model gateway
+  go here first before falling back to cloud.
+policy:
+  confirmation_required: false
+  note: "Resolved per-plug via ollama_hosts chain in config.yaml. Never hardcode the host."

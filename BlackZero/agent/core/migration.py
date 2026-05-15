@@ -31,7 +31,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_PLUGWAN_OLLAMA = "http://100.113.209.66:11434"
+_PLUGWAN_OLLAMA = os.environ.get("PLUGWAN_OLLAMA_URL") or (
+    f"http://{os.environ['PLUGWAN_TAILSCALE']}:11434"
+    if os.environ.get("PLUGWAN_TAILSCALE") else None
+)
 _PLUGWAN_HOST   = "plugwan"
 _PLUGFOE_HOST   = "plugfoe"
 _CHECK_INTERVAL = 60          # seconds between trigger checks

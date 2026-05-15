@@ -288,7 +288,7 @@ call another tool. When done, output your final response as plain text.
 
 **shell** — Run any shell command
 ```json
-{"tool": "shell", "params": {"command": "ls -la /tmp", "cwd": "/Users/darnieglover/ai/cmptrblk", "timeout": 30}}
+{"tool": "shell", "params": {"command": "ls -la /tmp", "cwd": "~/projects", "timeout": 30}}
 ```
 - `command`: shell command string (required)
 - `cwd`: working directory (default: cmptrblk root)
@@ -346,7 +346,7 @@ call another tool. When done, output your final response as plain text.
 
 **git_status** — Git status for a repo
 ```json
-{"tool": "git_status", "params": {"repo_path": "/Users/darnieglover/ai/cmptrblk/Engineer0"}}
+{"tool": "git_status", "params": {"repo_path": "~/projects/Engineer0"}}
 ```
 
 **git_add** — Stage files

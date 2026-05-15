@@ -1,0 +1,22 @@
+id: endpoint.plugops.api
+kind: endpoint
+name: PlugOps REST API
+status: active
+lifecycle: active
+method: various
+base_path: /api/v1
+host_ref: env.PLUGOPS_URL
+healthcheck: /health
+owner: plugops
+side_effects: true
+routes:
+  - POST /api/v1/agents/register
+  - GET  /api/v1/agents
+  - GET  /api/v1/agents/{id}
+  - POST /api/v1/agents/{id}/heartbeat
+  - POST /api/v1/sse/send
+  - POST /api/v1/chat
+policy:
+  confirmation_required: false
+  side_effects: true
+  note: "All agent registration and messaging goes through this endpoint."

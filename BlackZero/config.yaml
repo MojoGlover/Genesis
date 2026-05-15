@@ -26,6 +26,15 @@ model:
   primary:        "blackzero-hardened:latest"  # gateway model_id (ollama path)
   fallback:       "blackzero-hardened:latest"  # direct ollama fallback
   cloud_fallback: ""                       # last-resort Anthropic model
+  # Ordered fallback chain — first host that responds wins.
+  # stamp.py sets the model name per-agent. Keep URLs from shared.env.
+  ollama_hosts:
+    - name: plugfoe
+      url: "http://100.67.171.41:11434"
+      model: "blackzero-hardened:latest"
+    - name: plugwan
+      url: "http://100.113.209.66:11434"
+      model: "blackzero-hardened:latest"
 
 # Per-task model routing (stamp.py rewrites these for each agent)
 # Split brain: inference models handle tool loops + reasoning (quality matters);
@@ -34,7 +43,7 @@ models:
   chat:      "blackzero-hardened:latest"  # general conversation
   reasoning: "blackzero-hardened:latest"  # tool use, problem solving
   fast:      "blackzero-hardened:latest"  # mid-loop tool calls (must output JSON)
-  code:      "qwen2.5-coder:3b"           # code generation
+  code:      "qwen2.5-coder:7b"           # code generation
   embedding: "all-mpnet-base-v2"
   # Speech brain — takes inference output and delivers it to the user cleanly.
   # Use a small fast model here: llama3.2:3b locally, or cloud haiku as fallback.

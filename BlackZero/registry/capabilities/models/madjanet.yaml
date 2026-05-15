@@ -1,0 +1,23 @@
+id: model.agent.madjanet
+kind: model
+name: MadJanet
+status: active
+lifecycle: active
+provider: ollama
+model_name: madjanet:latest
+strengths:
+  - personal assistance and research
+  - memory and routing
+  - conversational tasks
+weaknesses:
+  - deep technical reasoning
+allowed_modes: [explore, plan, act]
+risk_level: low
+locality:
+  - plugfoe
+  - plugwan
+  - tablet   # llama3.2:3b variant on tablet
+policy:
+  allow_private_context: true
+  allow_external_calls: false
+  confirmation_required: false

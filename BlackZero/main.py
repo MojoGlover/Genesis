@@ -130,17 +130,7 @@ async def main() -> None:
     # ── 6. Bootstrap mission check ────────────────────────────────────────────
     # model_ready = True means the LLM gateway responded during bootstrap.
     # /health returns "starting" until this is confirmed.
-    model_ready = False
-    try:
-        verified = loader.bootstrap_check_via_gateway(mods.gateway, system_prompt, agent_name)
-        loader.save_bootstrap_result(data_dir, verified, agent_name)
-        model_ready = True
-        if verified:
-            logger.info("[bootstrap] PASS — mission acknowledged")
-        else:
-            logger.warning("[bootstrap] WARN — unexpected response (continuing)")
-    except Exception as e:
-        logger.warning(f"[bootstrap] Skipped — gateway not ready: {e}")
+    model_ready = True   # bootstrap check removed; gateway probed at first real request
 
     # ── 7. PlugOps bridge ─────────────────────────────────────────────────────
     from agent.plugops.bridge import PlugOpsBridge
@@ -162,7 +152,8 @@ async def main() -> None:
     )
 
     handler = MessageHandler(graph=graph, bridge=bridge,
-                             agent_name=agent_name, mission_context=system_prompt)
+                             agent_name=agent_name, mission_context=system_prompt,
+                             data_dir=data_dir)
     bridge.on_message_callback = handler.handle
 
     # ── 8. HTTP API ───────────────────────────────────────────────────────────

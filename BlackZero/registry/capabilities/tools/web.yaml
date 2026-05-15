@@ -1,0 +1,14 @@
+id: tool.remote.web
+kind: tool
+name: Web Fetch / Search
+status: active
+lifecycle: active
+adapter: agent.tools.web
+description: Fetch URLs and run web searches.
+risk_level: low
+side_effects: none
+allowed_modes: [explore, plan, act, audit]
+policy:
+  confirmation_required: false
+  blocked_in: []
+  note: "Fetches are outbound only. No credentials are sent."

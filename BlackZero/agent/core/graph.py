@@ -34,6 +34,10 @@ from agent.tools.registry import (
     TOOL_DOCS, OLLAMA_TOOL_DEFS, build_executor,
     parse_tool_call, parse_native_tool_call,
 )
+from agent.core.router          import CapabilityRouter
+from agent.core.local_tool_bus  import LocalToolBus
+from agent.core.quarantine      import QuarantineOverlay
+from agent.core.satellite_router import SatelliteRouter
 
 if TYPE_CHECKING:
     from agent.modules import Modules
@@ -285,15 +289,18 @@ def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
             )
 
     # Claimed command was run but no shell/python tool was called
+    # read_file and write_file also ground "the result is / the output is" —
+    # those phrases appear naturally after file reads, not just shell commands.
     run_claim_patterns = (
         "i ran ", "i executed ", "i ran the", "command ran",
         "command executed", "successfully ran", "i restarted",
         "i deployed", "i installed", "i started ", "i stopped ",
-        "the test passed", "tests pass", "test runs", "it works",
-        "the output is", "the result is", "running the",
+        "the test passed", "tests pass", "test runs",
+        "it works", "it's working", "it is working",
     )
+    run_grounding = run_tools | {"read_file", "write_file", "list_dir"}
     if any(p in lowered for p in run_claim_patterns):
-        if not called.intersection(run_tools):
+        if not called.intersection(run_grounding):
             return (
                 "FABRICATION DETECTED. You claimed a command ran or produced output, but no "
                 "shell or python tool was called. "
@@ -510,7 +517,7 @@ def make_think_node(mods: "Modules", system_prompt: str):
             logger.warning("[think] Malformed tool call — routing to repair")
             return {**state,
                     "tool_history":     tool_history + [{"role": "assistant", "content": response_text}],
-                    "tool_iterations":  iterations,   # don't increment; only the repair rethink counts
+                    "tool_iterations":  iterations + 1,
                     "tool_call_pending": True,
                     "force_rethink":    False,
                     "last_result":      {},
@@ -557,7 +564,7 @@ def make_think_node(mods: "Modules", system_prompt: str):
     return think
 
 
-def make_tool_node(execute_tool, mods: "Modules"):
+def make_tool_node(local_tool_bus: "LocalToolBus", mods: "Modules"):
     def tool(state: dict) -> dict:
         # Try native tool_calls format first (from gateway result stored in state),
         # then fall back to text parsing from the response string.
@@ -578,38 +585,24 @@ def make_tool_node(execute_tool, mods: "Modules"):
                     "last_result":      {},
                     "_last_result":     {}}
 
-        tool_name = tool_call.get("tool", "")
-        params    = tool_call.get("params", {})
+        tool_name  = tool_call.get("tool", "")
+        params     = tool_call.get("params", {})
+        session_id = state.get("session_id", "")
 
-        if not mods.policy.allow(action="tool_call", resource=tool_name):
-            logger.warning(f"[tool] Policy denied: {tool_name}")
-            result_str = f"Policy denied: cannot execute '{tool_name}'"
-        else:
-            logger.info(f"[tool] Executing: {tool_name}")
-            try:
-                result_str = execute_tool(tool_name, params)
-            except Exception as e:
-                result_str = f"Tool error: {e}"
-                logger.error(f"[tool] {tool_name}: {e}")
-
-        if len(result_str) > 8000:
-            result_str = result_str[:8000] + "\n…(truncated)"
+        # Route → quarantine → policy → execute → normalize → record evidence (all in bus)
+        mode = state.get("mode", "act")
+        result_str, normalized = local_tool_bus.execute(
+            tool_name, params, session_id=session_id, mode=mode
+        )
 
         mods.obs.counter("tool_calls_total", labels={"tool": tool_name})
 
-        # Only increment _tools_ran for real tool executions — not for unknown
-        # tools, policy denials, or tool errors. An unknown/errored tool still
-        # goes into tool_history so the model can see the failure, but it does
-        # NOT count as evidence that real work was done.
-        lowered_result = result_str.lower()
-        real_execution = not (
-            lowered_result.startswith("unknown tool:") or
-            lowered_result.startswith("policy denied:") or
-            lowered_result.startswith("tool error:") or
-            lowered_result.startswith("error:")
-        )
-
+        # Only count real executions toward tools_ran — failed/denied calls
+        # go into tool_history so the model sees the failure, but are not
+        # treated as evidence that real work was done.
+        real_execution = normalized.usable_for_claims
         new_tools_ran = state.get("tools_ran", state.get("_tools_ran", 0)) + (1 if real_execution else 0)
+
         return {**state,
                 "tool_history": state.get("tool_history", []) + [
                     {"role": "tool_result", "content": result_str}
@@ -701,12 +694,19 @@ def should_continue(state: dict) -> str:
 
 def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules"):
     """Build and compile the Engineer0 ReAct graph."""
-    execute_tool = build_executor()
+    execute_tool     = build_executor()
+    registry_dir     = Path(__file__).resolve().parent.parent.parent / "registry"
+    router           = CapabilityRouter(registry_dir)
+    satellite_router = SatelliteRouter(registry_dir)
+    quarantine       = QuarantineOverlay(data_dir)
+    tool_bus         = LocalToolBus(
+        execute_tool, router, mods.policy, mods.evidence, quarantine, satellite_router
+    )
 
     graph = StateGraph(dict)
     graph.add_node("recall",  make_recall_node(mods))
     graph.add_node("think",   make_think_node(mods, system_prompt))
-    graph.add_node("tool",    make_tool_node(execute_tool, mods))
+    graph.add_node("tool",    make_tool_node(tool_bus, mods))
     graph.add_node("respond", make_respond_node(mods))
 
     graph.set_entry_point("recall")

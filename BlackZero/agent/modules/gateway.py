@@ -7,7 +7,8 @@ Call chain (first success wins):
   1. Cloud primary  — if model.provider is "anthropic" or "openai"
   2. Local gateway  — model_gateway module (port 9109)
   3. Direct Ollama  — if fallback_ollama configured
-  4. Cloud fallback — last resort (Anthropic only, from model.cloud_fallback)
+  4. Gemini fallback — if GEMINI_API_KEY set and gemini_model configured
+  5. Cloud fallback — last resort (Anthropic only, from model.cloud_fallback)
 
 Config (config.yaml model section):
   provider:       "ollama"      # ollama | anthropic | openai
@@ -15,10 +16,12 @@ Config (config.yaml model section):
   primary:        ""            # gateway model_id (ollama path)
   fallback:       ""            # direct ollama model name
   cloud_fallback: ""            # anthropic model for last-resort fallback
+  gemini_model:   ""            # e.g. gemini-2.5-flash (fallback provider)
 
 Environment:
   ANTHROPIC_API_KEY   — required for provider=anthropic or cloud_fallback
   OPENAI_API_KEY      — required for provider=openai
+  GEMINI_API_KEY      — required for gemini_model fallback
 """
 from __future__ import annotations
 
@@ -33,6 +36,7 @@ _FALLBACK_TIMEOUT = 120.0
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _OPENAI_URL    = "https://api.openai.com/v1/chat/completions"
+_GEMINI_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
 class GatewayError(Exception):
@@ -53,6 +57,7 @@ class GatewayClient:
         cloud_model: str = "",            # model id for cloud primary
         task_ollama: str = "",            # plugwan Ollama URL for async task execution
         task_model: str = "",             # model to use for tasks (e.g. phi4:14b)
+        gemini_model: str = "",           # Gemini fallback model (e.g. gemini-2.5-flash)
         model_map: dict | None = None,
     ) -> None:
         self.agent_id             = agent_id
@@ -66,6 +71,7 @@ class GatewayClient:
         self.cloud_model          = cloud_model
         self.task_ollama          = task_ollama   # e.g. http://100.113.209.66:11434
         self.task_model           = task_model    # e.g. phi4:14b
+        self.gemini_model         = gemini_model  # e.g. gemini-2.5-flash
         self._model_map: dict[str, str] = model_map or {}
 
     @property
@@ -76,16 +82,19 @@ class GatewayClient:
     def _openai_key(self) -> str:
         return os.environ.get("OPENAI_API_KEY", "")
 
+    @property
+    def _gemini_key(self) -> str:
+        return os.environ.get("GEMINI_API_KEY", "")
+
     def _model_for(self, task_type: str) -> str:
         return self._model_map.get(task_type, self.model)
 
-    def task_chat(self, messages: list[dict], max_tokens: int = 4096,
+    def task_chat(self, messages: list[dict], max_tokens: int = 2048,
                   timeout: float = _FALLBACK_TIMEOUT,
                   tools: list[dict] | None = None) -> dict:
         """
-        Route a long-running task to the configured inference host (task_ollama).
-        Falls back to cloud primary if unreachable.
-        Use this from the task loop — not for real-time conversation.
+        Route a task to the configured task_ollama/task_model.
+        Falls back to cloud primary if task_ollama is unreachable.
         """
         if self.task_ollama and self.task_model:
             try:
@@ -119,7 +128,8 @@ class GatewayClient:
         # ── 1. Cloud primary (anthropic or openai) ────────────────────────────
         if self.cloud_provider == "anthropic" and self.cloud_model and self._anthropic_key:
             try:
-                return self._anthropic_chat(messages, self.cloud_model, max_tokens, timeout)
+                return self._anthropic_chat(messages, self.cloud_model, max_tokens, timeout,
+                                            tools=tools)
             except GatewayError as e:
                 logger.warning(f"[gateway] Anthropic primary failed: {e} — trying local")
 
@@ -161,20 +171,55 @@ class GatewayClient:
             except GatewayError as e:
                 logger.warning(f"[gateway] Ollama failed: {e} — trying cloud fallback")
 
-        # ── 4. Cloud fallback (Anthropic last resort) ─────────────────────────
+        # ── 4. Gemini fallback ────────────────────────────────────────────────
+        if self.gemini_model and self._gemini_key:
+            logger.warning(f"[gateway] Gemini fallback ({self.gemini_model})")
+            try:
+                return self._gemini_chat(messages, self.gemini_model, max_tokens, timeout,
+                                         tools=tools)
+            except GatewayError as e:
+                logger.warning(f"[gateway] Gemini failed: {e} — trying cloud fallback")
+
+        # ── 5. Cloud fallback (Anthropic last resort) ─────────────────────────
         if self.cloud_fallback_model and self._anthropic_key:
             logger.warning(f"[gateway] Anthropic cloud fallback ({self.cloud_fallback_model})")
-            return self._anthropic_chat(messages, self.cloud_fallback_model, max_tokens, timeout)
+            return self._anthropic_chat(messages, self.cloud_fallback_model, max_tokens, timeout,
+                                        tools=tools)
 
         raise GatewayError("all inference paths failed — no provider available")
 
     # ── Provider implementations ───────────────────────────────────────────────
 
     def _anthropic_chat(self, messages: list[dict], model: str,
-                        max_tokens: int, timeout: float) -> dict:
+                        max_tokens: int, timeout: float,
+                        tools: list[dict] | None = None) -> dict:
         t0 = time.time()
         try:
+            # Anthropic uses a top-level "system" param — not a message in the array.
+            # Extract system message before normalizing, then pass separately.
+            system_text = ""
+            for m in messages:
+                if m.get("role") == "system":
+                    system_text += (m.get("content") or "")
             clean = _normalize_messages(messages)
+            payload: dict = {"model": model, "max_tokens": max_tokens, "messages": clean}
+            if system_text:
+                payload["system"] = system_text
+            # Convert Ollama-format tools → Anthropic format.
+            # Ollama: [{"type":"function","function":{"name":...,"description":...,"parameters":...}}]
+            # Anthropic: [{"name":...,"description":...,"input_schema":{...}}]
+            if tools:
+                ant_tools = []
+                for t in tools:
+                    fn = t.get("function", t)
+                    schema = fn.get("parameters", fn.get("input_schema", {}))
+                    ant_tools.append({
+                        "name":         fn.get("name", ""),
+                        "description":  fn.get("description", ""),
+                        "input_schema": schema if schema else {"type": "object", "properties": {}},
+                    })
+                if ant_tools:
+                    payload["tools"] = ant_tools
             r = httpx.post(
                 _ANTHROPIC_URL,
                 headers={
@@ -182,20 +227,32 @@ class GatewayClient:
                     "anthropic-version": "2023-06-01",
                     "content-type":      "application/json",
                 },
-                json={"model": model, "max_tokens": max_tokens, "messages": clean},
+                json=payload,
                 timeout=timeout,
             )
             r.raise_for_status()
             data    = r.json()
-            content = "".join(b.get("text", "") for b in data.get("content", [])
-                              if b.get("type") == "text")
-            usage   = data.get("usage", {})
+            # Extract text and tool_use blocks from Anthropic content array.
+            content    = ""
+            tool_calls = None
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    content += block.get("text", "")
+                elif block.get("type") == "tool_use":
+                    # Convert to Ollama-style shape that graph.parse_native_tool_call() understands.
+                    if tool_calls is None:
+                        tool_calls = []
+                    tool_calls.append({"function": {
+                        "name":      block.get("name", ""),
+                        "arguments": block.get("input", {}),
+                    }})
+            usage = data.get("usage", {})
             return {
                 "ok":            True,
                 "model_id":      model,
                 "backend":       "anthropic",
                 "content":       content,
-                "tool_calls":    None,
+                "tool_calls":    tool_calls,
                 "input_tokens":  usage.get("input_tokens", 0),
                 "output_tokens": usage.get("output_tokens", 0),
                 "cost_usd":      0.0,
@@ -239,24 +296,38 @@ class GatewayClient:
 
     def _ollama_chat_at(self, base_url: str, model: str, messages: list[dict],
                         max_tokens: int, timeout: float,
-                        tools: list[dict] | None = None) -> dict:
-        """Ollama call to an arbitrary URL/model — used for task routing."""
+                        tools: list[dict] | None = None,
+                        num_ctx: int = 4096) -> dict:
+        """Ollama call to an arbitrary URL/model — used for task routing.
+
+        num_ctx: Ollama KV-cache size. Must match _ollama_chat's default (4096) so
+        the model stays loaded between calls — Ollama reloads when num_ctx changes.
+        Note: max_tokens (num_predict) caps OUTPUT length, num_ctx caps INPUT window.
+        """
         t0 = time.time()
         try:
             body: dict = {
                 "model":    model,
                 "messages": messages,
-                "options":  {"num_predict": max_tokens},
+                "options":  {"num_predict": max_tokens, "num_ctx": num_ctx},
                 "stream":   False,
             }
             if tools:
                 body["tools"] = tools
             r = httpx.post(f"{base_url}/api/chat", json=body, timeout=timeout)
+            _tools_stripped = False
+            if r.status_code == 400 and tools:
+                logger.warning("[gateway] task Ollama rejected tools — retrying without")
+                body.pop("tools")
+                r = httpx.post(f"{base_url}/api/chat", json=body, timeout=timeout)
+                _tools_stripped = True
             r.raise_for_status()
             data    = r.json()
             msg     = data.get("message", {})
             content = msg.get("content", "")
-            # Parse native Ollama tool_calls (list of {function: {name, arguments}})
+            # Preserve the native Ollama/OpenAI-style shape:
+            # [{"function": {"name": "...", "arguments": {...}}}]
+            # graph.parse_native_tool_call() already understands this format.
             raw_tc  = msg.get("tool_calls") or []
             parsed_tc: list[dict] | None = None
             if raw_tc:
@@ -272,13 +343,14 @@ class GatewayClient:
                         except Exception:
                             args = {}
                     if name:
-                        parsed_tc.append({"name": name, "parameters": args})
+                        parsed_tc.append({"function": {"name": name, "arguments": args if isinstance(args, dict) else {}}})
             return {
                 "ok":            True,
                 "model_id":      model,
                 "backend":       f"ollama-task:{base_url}",
                 "content":       content,
                 "tool_calls":    parsed_tc,
+                "tools_stripped": _tools_stripped,
                 "input_tokens":  len(str(messages)) // 4,
                 "output_tokens": len(content) // 4,
                 "cost_usd":      0.0,
@@ -288,13 +360,15 @@ class GatewayClient:
             raise GatewayError(f"task ollama at {base_url} failed: {e}") from e
 
     def _ollama_chat(self, messages: list[dict], max_tokens: int,
-                     timeout: float, tools: list[dict] | None = None) -> dict:
+                     timeout: float, tools: list[dict] | None = None,
+                     num_ctx: int = 4096) -> dict:
+        """Direct Ollama fallback. num_ctx capped at 4096 for local model on plugfoe."""
         t0 = time.time()
         try:
             body: dict = {
                 "model":    self.fallback_model,
                 "messages": messages,
-                "options":  {"num_predict": max_tokens},
+                "options":  {"num_predict": max_tokens, "num_ctx": num_ctx},
                 "stream":   False,
             }
             if tools:
@@ -331,6 +405,84 @@ class GatewayClient:
             }
         except Exception as e:
             raise GatewayError(f"ollama failed: {e}") from e
+
+
+    def _gemini_chat(self, messages: list[dict], model: str,
+                     max_tokens: int, timeout: float,
+                     tools: list[dict] | None = None) -> dict:
+        t0 = time.time()
+        try:
+            # Extract system prompt — Gemini uses system_instruction separately.
+            system_text = ""
+            for m in messages:
+                if m.get("role") == "system":
+                    system_text += (m.get("content") or "")
+
+            # Convert to Gemini contents format (role: user/model, parts: [{text}]).
+            contents = []
+            for m in messages:
+                role = m.get("role", "")
+                content = m.get("content") or ""
+                if role not in ("user", "assistant") or not content:
+                    continue
+                gemini_role = "model" if role == "assistant" else "user"
+                if contents and contents[-1]["role"] == gemini_role:
+                    contents[-1]["parts"][0]["text"] += "\n" + content
+                else:
+                    contents.append({"role": gemini_role, "parts": [{"text": content}]})
+
+            payload: dict = {
+                "contents":          contents,
+                "generationConfig":  {"maxOutputTokens": max_tokens},
+            }
+            if system_text:
+                payload["system_instruction"] = {"parts": [{"text": system_text}]}
+            if tools:
+                fn_decls = []
+                for t in tools:
+                    fn = t.get("function", t)
+                    schema = fn.get("parameters", fn.get("input_schema", {}))
+                    fn_decls.append({
+                        "name":        fn.get("name", ""),
+                        "description": fn.get("description", ""),
+                        "parameters":  schema if schema else {"type": "object", "properties": {}},
+                    })
+                if fn_decls:
+                    payload["tools"] = [{"function_declarations": fn_decls}]
+
+            url = _GEMINI_URL.format(model=model)
+            r = httpx.post(url, params={"key": self._gemini_key}, json=payload, timeout=timeout)
+            r.raise_for_status()
+            data = r.json()
+
+            content    = ""
+            tool_calls = None
+            candidate  = data.get("candidates", [{}])[0]
+            for part in candidate.get("content", {}).get("parts", []):
+                if "text" in part:
+                    content += part["text"]
+                elif "functionCall" in part:
+                    fc = part["functionCall"]
+                    if tool_calls is None:
+                        tool_calls = []
+                    tool_calls.append({"function": {
+                        "name":      fc.get("name", ""),
+                        "arguments": fc.get("args", {}),
+                    }})
+            usage = data.get("usageMetadata", {})
+            return {
+                "ok":            True,
+                "model_id":      model,
+                "backend":       "gemini",
+                "content":       content,
+                "tool_calls":    tool_calls,
+                "input_tokens":  usage.get("promptTokenCount", 0),
+                "output_tokens": usage.get("candidatesTokenCount", 0),
+                "cost_usd":      0.0,
+                "latency_ms":    round((time.time() - t0) * 1000, 1),
+            }
+        except Exception as e:
+            raise GatewayError(f"gemini failed: {e}") from e
 
 
 def _normalize_messages(messages: list[dict]) -> list[dict]:
