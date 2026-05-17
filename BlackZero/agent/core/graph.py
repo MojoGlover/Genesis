@@ -124,7 +124,13 @@ def _requires_tool_use(message: str) -> bool:
         "patch_file", "write_file", "patch ", "write ", "restart",
         "execute", "deploy", "install", "launchctl", "git commit",
         "git push", "git add", "apply the fix", "apply the patch",
-        "run the ", "run this", "scp ", "ssh ", "systemctl",
+        "run the ", "run this", "run: ", "shell: ",
+        "scp ", "ssh ", "systemctl",
+        # Messaging tools
+        "send_to_agent", "list_agents", "send to agent",
+        "speak with", "talk to ", "contact the", "message the",
+        "send a message to", "ask the agent", "tell the agent",
+        "reach out to",
     )
     if any(term in lowered for term in mutation_terms):
         return True

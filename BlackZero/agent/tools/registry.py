@@ -261,6 +261,23 @@ TOOL_SCHEMAS: list[dict] = [
         "description": "List all registered helper slots and whether their API keys are present",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "send_to_agent",
+        "description": "Send a message to another agent via PlugOps. The reply will arrive in your inbox asynchronously.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to":      {"type": "string", "description": "Target agent alias (e.g. 'ceo', 'madjanet', 'accountant')"},
+                "message": {"type": "string", "description": "Message content"},
+            },
+            "required": ["to", "message"],
+        },
+    },
+    {
+        "name": "list_agents",
+        "description": "List all agents currently registered with PlugOps and their online status",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -400,6 +417,19 @@ call another tool. When done, output your final response as plain text.
 **list_helpers** — Show all registered helper slots and whether their keys are present
 ```json
 {"tool": "list_helpers", "params": {}}
+```
+
+**send_to_agent** — Send a message to another agent via PlugOps
+```json
+{"tool": "send_to_agent", "params": {"to": "ceo", "message": "Can you review the Q2 budget?"}}
+```
+- `to`: agent alias — use `list_agents` first if unsure of the alias
+- `message`: plain-text content
+- The reply arrives in your inbox asynchronously; you do NOT need to poll for it
+
+**list_agents** — See all agents registered with PlugOps and their online status
+```json
+{"tool": "list_agents", "params": {}}
 ```
 
 ### Rules
@@ -584,7 +614,7 @@ def build_executor() -> Callable[[str, dict], str]:
     Build and return the tool executor function.
     Called once at agent boot. Returns a closure over all tool modules.
     """
-    from agent.tools import shell, files, git_tool, python_repl, web, helper
+    from agent.tools import shell, files, git_tool, python_repl, web, helper, messaging
 
     def execute(tool_name: str, params: dict) -> str:
         """Dispatch a tool call. Returns result as string for LLM context."""
@@ -699,6 +729,28 @@ def build_executor() -> Callable[[str, dict], str]:
             elif tool_name == "ask_helper":
                 result = helper.ask_helper(**params)
                 return helper.format_result(result)
+
+            elif tool_name == "send_to_agent":
+                result = messaging.send_to_agent(**params)
+                if result["ok"]:
+                    return f"Message delivered to '{params.get('to')}'."
+                return f"send_to_agent failed: {result.get('error')}"
+
+            elif tool_name == "list_agents":
+                result = messaging.list_agents()
+                if not result["ok"]:
+                    return f"list_agents failed: {result.get('error')}"
+                agents = result["agents"]
+                if not agents:
+                    return "No agents registered with PlugOps."
+                lines = [f"{len(agents)} agent(s) in registry:"]
+                for a in agents:
+                    status = a.get("status", "?")
+                    name   = a.get("name") or a.get("id", "?")
+                    alias  = a.get("id") or a.get("alias", "")
+                    caps   = ", ".join(a.get("capabilities", [])[:3])
+                    lines.append(f"  {name} ({alias}) — {status}  [{caps}]")
+                return "\n".join(lines)
 
             else:
                 _flag_missing_tool(tool_name, agent_id="engineer0", priority=1)

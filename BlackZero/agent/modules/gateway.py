@@ -50,7 +50,7 @@ class GatewayClient:
         url: str,
         model: str = "",
         enabled: bool = True,
-        fallback_ollama: str = "",
+        fallback_ollama: str = "http://localhost:11434",
         fallback_model: str = "",
         cloud_fallback_model: str = "",
         cloud_provider: str = "ollama",   # "ollama" | "anthropic" | "openai"
@@ -158,8 +158,8 @@ class GatewayClient:
                 if 400 <= r.status_code < 500:
                     raise GatewayError(f"gateway rejected: HTTP {r.status_code} — {r.text[:200]}")
                 logger.warning(f"[gateway] {r.status_code} — trying Ollama fallback")
-            except GatewayError:
-                raise
+            except GatewayError as e:
+                logger.warning(f"[gateway] model_gateway rejected ({e}) — trying Ollama fallback")
             except Exception as e:
                 logger.warning(f"[gateway] unreachable ({e}) — trying Ollama fallback")
 
