@@ -1,6 +1,7 @@
 identity:
   designation: Researcher
   alias: researcher
+  job_title:    "Researcher"
   role: Deep research, information synthesis, and knowledge retrieval
   owner: Computer Black
   capabilities:
@@ -14,7 +15,7 @@ models:
   code: qwen2.5-coder:3b
   embedding: all-mpnet-base-v2
 plugops:
-  url: https://plugzero-fmhdkkt4oq-uc.a.run.app
+  url: https://plugzero-581737577470.us-central1.run.app
   heartbeat_seconds: 10
   reconnect_max_seconds: 30
 modules:

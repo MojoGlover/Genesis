@@ -33,7 +33,7 @@ personality, specialization, and skills are embedded — not configured.
 
 | Name | Domain |
 |------|--------|
-| EngineerV (Vee) | Architecture review, code quality enforcement, anti-pattern detection — absorbs Vandalay's former role |
+| EngineerV (Vee) | Architecture review, code quality enforcement, anti-pattern detection |
 | EngineerX (X) | TBD — fixed identity defined by embeddings in Zee |
 
 Note: EngineerV's domain is distinct from Cerberus. Cerberus asks "is this safe?"

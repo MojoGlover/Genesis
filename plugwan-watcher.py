@@ -37,7 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-PLUGOPS_URL  = os.environ.get("PLUGOPS_URL", "https://plugzero-fmhdkkt4oq-uc.a.run.app")
+PLUGOPS_URL  = os.environ.get("PLUGOPS_URL", "https://plugzero-581737577470.us-central1.run.app")
 POLL_INTERVAL = 30   # seconds
 HOST_NAME    = "plugwan"
 

@@ -1,6 +1,7 @@
 identity:
   designation: Noodle Papageorgiou
   alias: noodle
+  job_title: Creative Director
   role: Creative Director
   owner: Computer Black
   capabilities:
@@ -25,7 +26,7 @@ models:
   code: qwen2.5-coder:3b
   embedding: all-mpnet-base-v2
 plugops:
-  url: https://plugzero-fmhdkkt4oq-uc.a.run.app
+  url: https://plugzero-581737577470.us-central1.run.app
   heartbeat_seconds: 10
   reconnect_max_seconds: 30
 modules:
@@ -63,6 +64,6 @@ modules:
     enabled: true
 mobility:
   enabled: false
-  plugops_url: https://plugzero-fmhdkkt4oq-uc.a.run.app
+  plugops_url: https://plugzero-581737577470.us-central1.run.app
 logging:
   level: INFO

@@ -398,7 +398,7 @@ def build_migration_trigger(config: dict, agent_id: str, agent_name: str, mods) 
     config.yaml:
       mobility:
         enabled: true
-        plugops_url: "https://plugzero-fmhdkkt4oq-uc.a.run.app"
+        plugops_url: "https://plugzero-581737577470.us-central1.run.app"
     """
     mob = config.get("mobility", {})
     if not mob.get("enabled", False):
