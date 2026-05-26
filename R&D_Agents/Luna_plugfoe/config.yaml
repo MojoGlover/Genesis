@@ -1,0 +1,69 @@
+identity:
+  designation: Luna
+  name: Luna
+  alias: luna
+  role: Research and diagnostic agent — analyzes AI capability gaps, identifies failure
+    patterns, monitors improvement progress, produces intelligence reports for Sol
+  owner: Computer Black
+  capabilities:
+  - chat
+data_dir: ~/.luna
+port: 5012
+api:
+  port: 5012
+model:
+  provider: ollama
+  cloud_model: ''
+  primary: blackzero-hardened:latest
+  fallback: blackzero-hardened:latest
+  cloud_fallback: ''
+models:
+  chat: luna:latest
+  reasoning: luna:latest
+  fast: luna:latest
+  code: qwen2.5-coder:3b
+  embedding: all-mpnet-base-v2
+plugops:
+  url: https://plugzero-581737577470.us-central1.run.app
+  heartbeat_seconds: 10
+  reconnect_max_seconds: 30
+  host: ''
+  port: 0
+modules:
+  base_url: http://127.0.0.1
+  communication:
+    port: 9100
+    enabled: true
+  registry:
+    port: 9101
+    enabled: true
+  mind_state:
+    port: 9102
+    enabled: true
+    plugops_url: ''
+  supervisor:
+    port: 9103
+    enabled: true
+  policy_gate:
+    port: 9104
+    enabled: true
+  tool_bus:
+    port: 9105
+    enabled: true
+  ledger:
+    port: 9106
+    enabled: true
+  scheduler:
+    port: 9107
+    enabled: false
+  observability:
+    port: 9108
+    enabled: true
+  model_gateway:
+    port: 9109
+    enabled: true
+mobility:
+  enabled: false
+  plugops_url: http://localhost:9000
+logging:
+  level: INFO
