@@ -12,6 +12,16 @@ v2 inverts this. **PlugWan is the grid authority.** Cloud is optional infrastruc
 
 ---
 
+## Plug Categories
+
+**Plugwan** — the local grid authority. Where everything runs.
+
+**Plugouts** — always-on external nodes. Lightweight coordination only, no inference. There is one active plugout at a time. PlugFoe replaced PlugOh as the active plugout. PlugOh is retired.
+
+**Plugclients** — intermittent client devices. No server-side role.
+
+---
+
 ## Plug Inventory
 
 ### PlugWan (MacBook) — Grid Authority
@@ -33,12 +43,12 @@ v2 inverts this. **PlugWan is the grid authority.** Cloud is optional infrastruc
 
 ---
 
-### PlugFoe (Hetzner VPS — 178.105.62.143) — Coordinator Only
-**Role:** Always-on lightweight coordination. No inference.
+### PlugFoe (Hetzner VPS — 178.105.62.143) — Active Plugout
+**Role:** Always-on lightweight coordination. No inference. Replaced PlugOh.
 
 Runs:
 - Agent registry and heartbeats
-- Message queue for inter-agent coordination
+- Message queue and agent-to-agent coordination bus
 - Stock response layer for MadJanet (see below)
 - Routing and presence signals
 
@@ -49,14 +59,16 @@ Does NOT run:
 
 Cost: Fixed VPS cost, acceptable. No inference cost.
 
-**MadJanet stock response layer:** When PlugWan is asleep and MadJanet receives a message, PlugFoe's pattern matcher returns an honest holding response. Default catch-all: *"Heard you. This one needs real thinking so it'll have to wait until the laptop's awake."* Zero inference, zero API cost.
+**MadJanet coordination path:** MadJanet routes inter-agent communication and bus messages through PlugFoe by choice. When PlugWan is awake, she uses PlugFoe to reach Engineer0, Cerberus, and other agents. When PlugWan is asleep, PlugFoe's pattern matcher returns an honest holding response. Default catch-all: *"Heard you. This one needs real thinking so it'll have to wait until the laptop's awake."* Zero inference, zero API cost.
+
+**Note:** The Botico app currently still points at PlugOh (Cloud Run) for registry/bus — this is why agents show "unknown" in the UI. Needs to be updated to point at PlugFoe.
 
 ---
 
-### PlugOh (Cloud Run) — Dormant
-**Role:** Reserved. Do not deploy to without an explicit decision to change posture.
+### PlugOh (Cloud Run) — Retired Plugout
+**Role:** Previous active plugout. Replaced by PlugFoe.
 
-Cloud Run costs nothing when idle. It stays parked. If the architecture ever shifts back toward cloud-primary (requires an explicit posture change decision), PlugOh is the deployment target. Until then, treat as non-existent.
+Cloud Run costs nothing when idle. Parked indefinitely. Do not deploy to it without an explicit posture change decision. The Botico app still references it — updating that reference to PlugFoe is a pending task.
 
 ---
 
@@ -103,9 +115,11 @@ Agents do not authorize their own spending. This is a hard rule.
 ## What Changed from v1
 
 1. PlugWan promoted from local outlet → grid authority
-2. PlugOh demoted from active deployment → dormant/reserved
-3. PlugFoe role clarified: coordinator only, no inference
-4. MadJanet stock response layer added (PlugFoe-hosted)
-5. PlugoCinco deferred (capacity unreliable, not just cost)
-6. All-local inference policy made explicit
-7. Cloud API spend gate added (Accountant approval required)
+2. PlugOh retired — replaced by PlugFoe as the active plugout
+3. PlugFoe is the active plugout: coordinator only, no inference
+4. MadJanet coordination path clarified: routes inter-agent comms through plugout by choice
+5. MadJanet stock response layer added (PlugFoe-hosted, zero inference)
+6. PlugoCinco deferred (capacity unreliable, not just cost)
+7. All-local inference policy made explicit
+8. Cloud API spend gate added (Accountant approval required)
+9. Pending: Botico app registry/bus reference needs updating from PlugOh → PlugFoe
