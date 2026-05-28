@@ -59,16 +59,18 @@ Does NOT run:
 
 Cost: Fixed VPS cost, acceptable. No inference cost.
 
-**MadJanet coordination path:** MadJanet routes inter-agent communication and bus messages through PlugFoe by choice. When PlugWan is awake, she uses PlugFoe to reach Engineer0, Cerberus, and other agents. When PlugWan is asleep, PlugFoe's pattern matcher returns an honest holding response. Default catch-all: *"Heard you. This one needs real thinking so it'll have to wait until the laptop's awake."* Zero inference, zero API cost.
+**MadJanet coordination path:** MadJanet routes inter-agent communication and bus messages through **PlugOps** (the coordination service) by choice. When PlugWan is awake, she uses PlugOps to reach Engineer0, Cerberus, and other agents on the bus. PlugOps is not the infrastructure — it's the service layer. It currently runs on PlugOh (Cloud Run, now offline). Migration target is PlugFoe (Hetzner).
 
-**Note:** The Botico app currently still points at PlugOh (Cloud Run) for registry/bus — this is why agents show "unknown" in the UI. Needs to be updated to point at PlugFoe.
+When PlugOps is offline and PlugWan is asleep, PlugFoe's pattern matcher returns an honest holding response. Default catch-all: *"Heard you. This one needs real thinking so it'll have to wait until the laptop's awake."* Zero inference, zero API cost.
+
+**Note:** The Botico app currently points at PlugOps on PlugOh (Cloud Run) — which is why agents show "unknown" and the bus shows 0 agents. PlugOps needs to be migrated to PlugFoe and Botico updated to point there.
 
 ---
 
 ### PlugOh (Cloud Run) — Retired Plugout
 **Role:** Previous active plugout. Replaced by PlugFoe.
 
-Cloud Run costs nothing when idle. Parked indefinitely. Do not deploy to it without an explicit posture change decision. The Botico app still references it — updating that reference to PlugFoe is a pending task.
+Previously hosted the PlugOps coordination service. Cloud Run costs nothing when idle. Parked indefinitely. Do not deploy to it without an explicit posture change decision. PlugOps migrates to PlugFoe — PlugOh is not its permanent home.
 
 ---
 
