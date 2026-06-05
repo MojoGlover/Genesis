@@ -33,6 +33,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _FALLBACK_TIMEOUT = 120.0
+_OLLAMA_PRESSURE_RESET_EVERY = 8  # force model unload every N calls to prevent OOM crash under sustained load
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _OPENAI_URL    = "https://api.openai.com/v1/chat/completions"
@@ -73,6 +74,7 @@ class GatewayClient:
         self.task_model           = task_model    # e.g. phi4:14b
         self.gemini_model         = gemini_model  # e.g. gemini-2.5-flash
         self._model_map: dict[str, str] = model_map or {}
+        self._ollama_call_count: int = 0
 
     @property
     def _anthropic_key(self) -> str:
@@ -125,19 +127,25 @@ class GatewayClient:
         Raises GatewayError only if every path fails.
         """
 
-        # ── 1. Cloud primary (anthropic or openai) ────────────────────────────
-        if self.cloud_provider == "anthropic" and self.cloud_model and self._anthropic_key:
+        # ── 1. Direct cloud — ONLY when the gateway is unavailable ─────────────
+        # DEFAULT routing goes THROUGH the gated model_gateway (block 2 below) so
+        # every paid call is cost-checked before it fires (Darnie's rule, 2026-06-05:
+        # "never allow a call without computing the cost"). Direct cloud is a
+        # fallback for when the gateway is disabled — never the normal path. The
+        # gateway applies per-agent budgets (Accountant-adjustable) and falls back
+        # to local on overspend.
+        if not self.enabled and self.cloud_provider == "anthropic" and self.cloud_model and self._anthropic_key:
             try:
                 return self._anthropic_chat(messages, self.cloud_model, max_tokens, timeout,
                                             tools=tools)
             except GatewayError as e:
-                logger.warning(f"[gateway] Anthropic primary failed: {e} — trying local")
+                logger.warning(f"[gateway] Anthropic direct failed: {e} — trying local")
 
-        elif self.cloud_provider == "openai" and self.cloud_model and self._openai_key:
+        elif not self.enabled and self.cloud_provider == "openai" and self.cloud_model and self._openai_key:
             try:
                 return self._openai_chat(messages, self.cloud_model, max_tokens, timeout)
             except GatewayError as e:
-                logger.warning(f"[gateway] OpenAI primary failed: {e} — trying local")
+                logger.warning(f"[gateway] OpenAI direct failed: {e} — trying local")
 
         # ── 2. Local model_gateway ────────────────────────────────────────────
         model_id = model_id_override or self.model
@@ -306,11 +314,23 @@ class GatewayClient:
         """
         t0 = time.time()
         try:
+            self._ollama_call_count += 1
+            if self._ollama_call_count >= _OLLAMA_PRESSURE_RESET_EVERY:
+                keep_alive = 0
+                self._ollama_call_count = 0
+                logger.warning(
+                    f"[gateway] Ollama memory reset at call {_OLLAMA_PRESSURE_RESET_EVERY} "
+                    f"— flushing model from memory (next call will cold-start ~30-60s)"
+                )
+            else:
+                keep_alive = 3600
+
             body: dict = {
-                "model":    model,
-                "messages": messages,
-                "options":  {"num_predict": max_tokens, "num_ctx": num_ctx},
-                "stream":   False,
+                "model":      model,
+                "messages":   messages,
+                "options":    {"num_predict": max_tokens, "num_ctx": num_ctx},
+                "stream":     False,
+                "keep_alive": keep_alive,
             }
             if tools:
                 body["tools"] = tools
@@ -365,11 +385,23 @@ class GatewayClient:
         """Direct Ollama fallback. num_ctx capped at 4096 for local model on plugfoe."""
         t0 = time.time()
         try:
+            self._ollama_call_count += 1
+            if self._ollama_call_count >= _OLLAMA_PRESSURE_RESET_EVERY:
+                keep_alive = 0
+                self._ollama_call_count = 0
+                logger.warning(
+                    f"[gateway] Ollama memory reset at call {_OLLAMA_PRESSURE_RESET_EVERY} "
+                    f"— flushing model from memory (next call will cold-start ~30-60s)"
+                )
+            else:
+                keep_alive = 3600
+
             body: dict = {
-                "model":    self.fallback_model,
-                "messages": messages,
-                "options":  {"num_predict": max_tokens, "num_ctx": num_ctx},
-                "stream":   False,
+                "model":      self.fallback_model,
+                "messages":   messages,
+                "options":    {"num_predict": max_tokens, "num_ctx": num_ctx},
+                "stream":     False,
+                "keep_alive": keep_alive,
             }
             if tools:
                 body["tools"] = tools
