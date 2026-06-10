@@ -54,6 +54,12 @@ HEALTH_TTL        = 60.0    # seconds before model health is re-checked
 RATE_WINDOW       = 60.0    # rate limit window in seconds
 USAGE_KEEP        = 10_000  # max usage log entries
 
+# Spend gate (Darnie's rule, 2026-06-05): no paid call without computing cost first.
+# Every paid (cloud) call is cost-estimated BEFORE dispatch and checked against the
+# agent's daily cap. Over budget → fall back to a free local model (work continues),
+# never a silent overspend. Caps are set per-agent via /budget/set; this is the default.
+DEFAULT_DAILY_CAP_USD = 5.00   # per-agent/day cloud-spend ceiling before local fallback kicks in
+
 app = FastAPI(title="ModelGateway Node", version="1.0")
 
 
@@ -116,6 +122,13 @@ def init_db() -> None:
                 ON usage_log(agent_id, logged_at DESC);
             CREATE INDEX IF NOT EXISTS idx_usage_model
                 ON usage_log(model_id, logged_at DESC);
+
+            CREATE TABLE IF NOT EXISTS budgets (
+                agent_id      TEXT PRIMARY KEY,
+                cap_usd       REAL NOT NULL,
+                window_days   INTEGER NOT NULL DEFAULT 1,
+                set_at        REAL NOT NULL
+            );
         """)
         _seed_models(conn)
 
@@ -239,6 +252,78 @@ def _compute_cost(model: sqlite3.Row, input_tokens: int, output_tokens: int) -> 
     ) / 1000
 
 
+# ── Spend gate ──────────────────────────────────────────────────────────────────
+# Deterministic pre-call cost check. Lives in the gateway (the single chokepoint all
+# cloud calls pass through) — NOT in the Accountant LLM agent, which would be slow and
+# would burn LLM tokens to check LLM spend. The Accountant sets caps + reports; the
+# gateway enforces.
+
+def _is_paid(model: sqlite3.Row) -> bool:
+    """A model costs money if it has any per-token cost (cloud backends)."""
+    return model["cost_per_1k_in"] > 0 or model["cost_per_1k_out"] > 0
+
+
+def _estimate_cost(model: sqlite3.Row, messages: list, max_tokens: int) -> float:
+    """Worst-case cost estimate BEFORE the call: rough input-token count from the
+    payload + the full requested max_tokens as output. Deliberately conservative so
+    the gate never under-estimates a paid call."""
+    input_tokens_est  = max(1, len(str(messages)) // 4)
+    output_tokens_est = max_tokens
+    return _compute_cost(model, input_tokens_est, output_tokens_est)
+
+
+def _get_budget(agent_id: str) -> tuple[float, int]:
+    """Return (cap_usd, window_days) for an agent. Default is a 1-day window."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT cap_usd, window_days FROM budgets WHERE agent_id=?", (agent_id,)
+        ).fetchone()
+    if row:
+        return float(row["cap_usd"]), int(row["window_days"])
+    return DEFAULT_DAILY_CAP_USD, 1
+
+
+def _spend_window(agent_id: str, window_days: int) -> float:
+    """Sum of this agent's cloud spend over the rolling window. A 7-day window means
+    unused budget 'banks' across the week — a quiet stretch funds a heavy day."""
+    since = time.time() - (window_days * 86400)
+    with db() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd),0) AS t FROM usage_log "
+            "WHERE agent_id=? AND logged_at>=?",
+            (agent_id, since),
+        ).fetchone()
+    return float(row["t"] or 0.0)
+
+
+def _budget_check(agent_id: str, estimated_cost_usd: float) -> dict:
+    """The core decision: would this estimated cost push the agent over its cap,
+    measured across its rolling window (weekly-banked if window_days=7)?"""
+    cap, window_days = _get_budget(agent_id)
+    spend   = _spend_window(agent_id, window_days)
+    allowed = (spend + estimated_cost_usd) <= cap
+    return {
+        "allowed":            allowed,
+        "agent_id":           agent_id,
+        "estimated_cost_usd": round(estimated_cost_usd, 6),
+        "window_days":        window_days,
+        "spend_in_window_usd": round(spend, 6),
+        "cap_usd":            round(cap, 6),
+        "remaining_usd":      round(max(0.0, cap - spend), 6),
+    }
+
+
+def _pick_free_local(capability: str) -> Optional[sqlite3.Row]:
+    """Cheapest free local model with the needed capability — the budget fallback."""
+    with db() as conn:
+        return conn.execute(
+            "SELECT * FROM models WHERE enabled=1 AND backend='ollama' "
+            "AND cost_per_1k_in=0 AND cost_per_1k_out=0 AND capabilities LIKE ? "
+            "ORDER BY priority LIMIT 1",
+            (f"%{capability}%",),
+        ).fetchone()
+
+
 def _log_usage(agent_id: str, model: sqlite3.Row, input_tokens: int,
                output_tokens: int, latency_ms: float, status: str, request_type: str) -> None:
     cost = _compute_cost(model, input_tokens, output_tokens)
@@ -354,6 +439,27 @@ async def _route_and_call(
             "message": "No model available matching request constraints.",
         })
 
+    # ── SPEND GATE ──────────────────────────────────────────────────────────────
+    # No paid call without computing its cost first. Free/local models pass through
+    # with zero overhead. Paid models are estimated + checked against the daily cap;
+    # over budget → fall back to a free local model so work continues, never overspend.
+    budget_decision = None
+    if _is_paid(model):
+        est = _estimate_cost(model, messages, max_tokens)
+        budget_decision = _budget_check(agent_id, est)
+        if not budget_decision["allowed"]:
+            fallback = _pick_free_local(capability)
+            if fallback is None:
+                raise HTTPException(status_code=402, detail={
+                    "error": "budget_exceeded",
+                    "message": "Paid call would exceed the agent's daily cap and no "
+                               "free local model is available for fallback.",
+                    **budget_decision,
+                    "denied_model_id": model["model_id"],
+                })
+            # Graceful downgrade: serve the request locally instead of overspending.
+            model = fallback
+
     t0     = time.time()
     status = "ok"
     result = {}
@@ -437,6 +543,17 @@ class RegisterModelRequest(BaseModel):
     context_window: int  = 8192
     cost_per_1k_in:  float = 0.0
     cost_per_1k_out: float = 0.0
+
+
+class BudgetCheckRequest(BaseModel):
+    agent_id:           str
+    estimated_cost_usd: float
+
+
+class BudgetSetRequest(BaseModel):
+    agent_id:    str
+    cap_usd:     float
+    window_days: int = 1   # 1 = daily reset; 7 = weekly-banked
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -619,6 +736,71 @@ async def system_usage(limit: int = 100):
             for r in rows
         ]
     }
+
+
+@app.post("/budget/check")
+async def budget_check(req: BudgetCheckRequest):
+    """Pre-call gate: would this estimated cost push the agent over its daily cap?
+    Deterministic, no LLM. This is the programmatic enforcement point for the rule
+    'no paid call without computing the cost first'."""
+    return {"ok": True, **_budget_check(req.agent_id, req.estimated_cost_usd)}
+
+
+@app.post("/budget/set")
+async def budget_set(req: BudgetSetRequest):
+    """Set an agent's cloud-spend cap + window. window_days=7 banks unused budget
+    across the week. Owned by the Accountant / Darnie."""
+    if req.cap_usd < 0 or req.window_days < 1:
+        raise HTTPException(status_code=400, detail={"error": "cap>=0 and window_days>=1 required"})
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO budgets (agent_id, cap_usd, window_days, set_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(agent_id) DO UPDATE SET cap_usd=excluded.cap_usd, "
+            "window_days=excluded.window_days, set_at=excluded.set_at",
+            (req.agent_id, req.cap_usd, req.window_days, time.time()),
+        )
+    return {"ok": True, "agent_id": req.agent_id, "cap_usd": req.cap_usd,
+            "window_days": req.window_days}
+
+
+@app.get("/budget/{agent_id}")
+async def budget_get(agent_id: str):
+    """Current cap, window, spend over the window, and remaining headroom."""
+    cap, window_days = _get_budget(agent_id)
+    spend = _spend_window(agent_id, window_days)
+    with db() as conn:
+        row = conn.execute("SELECT cap_usd FROM budgets WHERE agent_id=?", (agent_id,)).fetchone()
+    return {
+        "ok":             True,
+        "agent_id":       agent_id,
+        "cap_usd":        round(cap, 6),
+        "window_days":    window_days,
+        "is_default_cap": row is None,
+        "spend_in_window_usd": round(spend, 6),
+        "remaining_usd":  round(max(0.0, cap - spend), 6),
+        "pct_used":       round(100 * spend / cap, 1) if cap > 0 else 100.0,
+    }
+
+
+@app.get("/budget")
+async def budget_list():
+    """All explicitly-set caps + the default. The cost-monitoring overview."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT agent_id, cap_usd, window_days, set_at FROM budgets ORDER BY agent_id"
+        ).fetchall()
+    out = []
+    for r in rows:
+        spend = _spend_window(r["agent_id"], int(r["window_days"]))
+        out.append({
+            "agent_id":     r["agent_id"],
+            "cap_usd":      r["cap_usd"],
+            "window_days":  r["window_days"],
+            "spend_usd":    round(spend, 6),
+            "remaining_usd": round(max(0.0, r["cap_usd"] - spend), 6),
+            "pct_used":     round(100 * spend / r["cap_usd"], 1) if r["cap_usd"] > 0 else 100.0,
+        })
+    return {"ok": True, "default_cap_usd": DEFAULT_DAILY_CAP_USD, "agent_caps": out}
 
 
 @app.get("/health")
