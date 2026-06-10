@@ -133,7 +133,7 @@ async def main() -> None:
     model_ready = True   # bootstrap check removed; gateway probed at first real request
 
     # ── 7. PlugOps bridge ─────────────────────────────────────────────────────
-    from agent.plugops.bridge import PlugOpsBridge
+    from agent.plugops.bridge import PlugOpsBridge, RegistrationRequired
     from agent.plugops.handler import MessageHandler
 
     plugops_url = (
@@ -142,6 +142,10 @@ async def main() -> None:
         or f"ws://127.0.0.1:9000/ws/{agent_id}"
     )
 
+    # Rule (Darnie 2026-06-05): only Engineer0 may serve without PlugOps.
+    # All other agents must exit if registration fails — launchd/systemd retries.
+    require_plugops = config.get("plugops", {}).get("require_plugops", True)
+
     bridge = PlugOpsBridge(
         url=plugops_url,
         agent_id=agent_id,
@@ -149,6 +153,7 @@ async def main() -> None:
         capabilities=identity.capabilities,
         config=config.get("plugops", {}),
         on_message_callback=None,
+        require_registration=require_plugops,
     )
 
     handler = MessageHandler(graph=graph, bridge=bridge,

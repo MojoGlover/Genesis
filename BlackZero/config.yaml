@@ -55,6 +55,9 @@ plugops:
   url:                   "https://plugzero-581737577470.us-central1.run.app"
   heartbeat_seconds:     10
   reconnect_max_seconds: 30
+  # Rule (Darnie 2026-06-05): agents may NOT serve requests without PlugOps registration.
+  # Only Engineer0 sets this false — it's the infra agent that recovers the grid when PlugOps is down.
+  require_plugops: true
   # Grid registration: agent's own reachable host + port, sent to PlugOps at register time.
   # PlugOps derives api_url = "http://{host}:{port}" and stores it.
   # Other agents then call GET /api/v1/agents/{id}/url instead of hardcoding this URL.

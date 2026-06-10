@@ -33,6 +33,13 @@ from httpx_sse import aconnect_sse
 logger = logging.getLogger(__name__)
 
 
+class RegistrationRequired(RuntimeError):
+    """Raised when require_plugops=True and PlugOps registration fails after all retries.
+    The process should exit — launchd/systemd will restart and retry.
+    Only Engineer0 sets require_plugops=False (can operate standalone for infra recovery).
+    Rule: Darnie 2026-06-05 — no agent but Engineer0 may serve requests without PlugOps."""
+
+
 class PlugOpsBridge:
     def __init__(
         self,
@@ -42,6 +49,7 @@ class PlugOpsBridge:
         capabilities: list[str],
         on_message_callback: Callable[[dict], Awaitable[None]],
         config: dict | None = None,
+        require_registration: bool = True,
     ) -> None:
         cfg = config or {}
         # Accept ws:// or http:// — normalise to http://
@@ -62,6 +70,7 @@ class PlugOpsBridge:
         # PlugOps must send keepalive SSE comments (": keepalive") at a shorter interval.
         self._sse_read_timeout   = cfg.get("sse_read_timeout_seconds", 90)
         self._should_run         = True
+        self._require_registration = require_registration
         self._connected          = False
         self._client: httpx.AsyncClient | None = None
         self._sse_client: httpx.AsyncClient | None = None
@@ -162,6 +171,12 @@ class PlugOpsBridge:
                 logger.warning(f"[bridge] register attempt {attempt+1}: {e!r}")
             await asyncio.sleep(delay)
         logger.error("[bridge] Could not register with PlugOps after retries")
+        if self._require_registration:
+            raise RegistrationRequired(
+                f"[bridge] {self.agent_name} requires PlugOps but could not register. "
+                "Will not serve requests. launchd/systemd will retry on next start. "
+                "(Set require_plugops: false in config only for Engineer0.)"
+            )
 
     async def _heartbeat_loop(self) -> None:
         assert self._client is not None

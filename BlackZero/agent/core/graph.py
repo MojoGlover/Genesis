@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -46,6 +47,13 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS  = 6   # hard cap for action tasks (_requires_tool_use = True)
 MAX_CHAT_TOOL_ITER   = 2   # cap for spontaneous tool use on conversational messages
+
+# Hard ceiling on a single LLM call made from the think node. Bounded well
+# under /api/chat's CHAT_TIMEOUT (180s) so that even if asyncio.wait_for()
+# times out the HTTP response while a call is in flight, the executor thread
+# is guaranteed to come back within this many seconds — at which point the
+# deadline check below ends the loop instead of starting another call.
+GATEWAY_CALL_TIMEOUT = 60.0
 
 # Injected into every system prompt — makes fabrication structurally prohibited
 ANTI_HALLUCINATION_RULES = """
@@ -392,6 +400,23 @@ def make_think_node(mods: "Modules", system_prompt: str):
                     summary += f"\n- {entry['content'][:1000]}"
             return {**state, "response": summary, "tool_call_pending": False}
 
+        # ── Cooperative deadline check ──────────────────────────────────────────
+        # /api/chat sets `_deadline` (a time.monotonic() cutoff) before invoking
+        # the graph. asyncio.wait_for() can only abandon the HTTP response when
+        # CHAT_TIMEOUT elapses — it cannot kill the executor thread running this
+        # code. Without this check, a thread that's between iterations when the
+        # HTTP timeout fires would go on to start ANOTHER LLM call (up to
+        # GATEWAY_CALL_TIMEOUT seconds) for no one. Checking here, before issuing
+        # the next LLM call, lets an already-timed-out request exit on its own
+        # within one iteration instead of running indefinitely in the background.
+        deadline = state.get("_deadline")
+        if deadline is not None and time.monotonic() >= deadline:
+            logger.warning("[think] Deadline already exceeded — aborting without further LLM calls")
+            return {**state,
+                    "response":          "FAILED: deadline exceeded before this iteration started.",
+                    "tool_call_pending": False,
+                    "force_rethink":     False}
+
         # Pick model tier early — needed to decide whether TOOL_DOCS is included.
         if iterations > 0 or tool_history:
             task_type = "fast"
@@ -449,7 +474,8 @@ def make_think_node(mods: "Modules", system_prompt: str):
         logger.debug(f"[think] LLM call #{iterations + 1} task_type={task_type} native_tools={use_native_tools}")
         try:
             result = mods.gateway.chat_for(messages, task_type=task_type,
-                                           tools=tools_payload)
+                                           tools=tools_payload,
+                                           timeout=GATEWAY_CALL_TIMEOUT)
         except Exception as e:
             logger.error(f"[think] gateway error: {e}")
             return {**state, "response": f"LLM error: {e}", "tool_call_pending": False}

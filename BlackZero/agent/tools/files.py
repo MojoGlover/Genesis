@@ -1,8 +1,14 @@
 """
-files.py — File system tools for Engineer0.
+files.py — File system tools for BlackZero agents.
 
 Read, write, list, search, and patch files.
 All writes are logged. No silent overwrites.
+
+Writes/patches/appends are sandboxed to this agent's own project directory
+(AGENT_DIR), its data_dir (read from config.yaml, e.g. ~/.luna), and /tmp.
+Agents that legitimately need broader write access (e.g. a coding agent that
+edits other repos) can extend the sandbox via the AGENT_WRITE_ROOTS env var
+(colon-separated absolute paths).
 """
 from __future__ import annotations
 
@@ -13,6 +19,55 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 MAX_READ_BYTES = 100_000  # 100KB — prevent context explosion
+
+# agent/tools/files.py -> agent/tools -> agent -> <agent root>
+AGENT_DIR = Path(__file__).resolve().parents[2]
+
+
+def _allowed_write_roots() -> list[Path]:
+    """Directories this agent is allowed to write/patch/append within."""
+    roots = [AGENT_DIR]
+
+    try:
+        cfg_path = AGENT_DIR / "config.yaml"
+        if cfg_path.exists():
+            import yaml
+            with open(cfg_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            agent_id = os.environ.get("AGENT_ID") or cfg.get("identity", {}).get("id", AGENT_DIR.name.lower())
+            data_dir = cfg.get("data_dir", f"~/.{agent_id}")
+            roots.append(Path(data_dir).expanduser())
+    except Exception as e:
+        logger.warning(f"[files] Could not read data_dir from config.yaml: {e}")
+
+    for entry in os.environ.get("AGENT_WRITE_ROOTS", "").split(":"):
+        entry = entry.strip()
+        if entry:
+            roots.append(Path(entry).expanduser())
+
+    roots.append(Path("/tmp"))
+    roots.append(Path("/private/tmp"))
+
+    resolved = [r.resolve() for r in roots]
+    seen: list[Path] = []
+    for r in resolved:
+        if r not in seen:
+            seen.append(r)
+    return seen
+
+
+def _check_write_allowed(p: Path) -> str | None:
+    """Returns an error string if writing to p is not allowed, else None."""
+    resolved = p.expanduser().resolve()
+    roots = _allowed_write_roots()
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+            return None
+        except ValueError:
+            continue
+    allowed = ", ".join(str(r) for r in roots)
+    return f"Refusing to write — '{resolved}' is outside this agent's allowed paths ({allowed})."
 
 
 def read(path: str, offset: int = 0, limit: int = 200) -> dict:
@@ -40,9 +95,43 @@ def read(path: str, offset: int = 0, limit: int = 200) -> dict:
         return {"error": str(e), "content": ""}
 
 
+def _coerce_content(content) -> str:
+    """
+    Normalize tool-call `content` to a string.
+
+    Local models frequently emit a JSON array of lines (e.g. when asked to
+    write JSONL — one array element per record/line) instead of a single
+    newline-joined string. Rather than fail the whole write, join list
+    elements with newlines (dict/list elements are JSON-encoded). Anything
+    else is coerced via str().
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        import json as _json
+        lines = []
+        for item in content:
+            if isinstance(item, str):
+                lines.append(item)
+            else:
+                lines.append(_json.dumps(item))
+        return "\n".join(lines)
+    if isinstance(content, dict):
+        import json as _json
+        return _json.dumps(content)
+    return str(content)
+
+
 def write(path: str, content: str, overwrite: bool = True) -> dict:
     """Write content to a file. Creates parent dirs if needed."""
     p = Path(path).expanduser()
+    content = _coerce_content(content)
+
+    err = _check_write_allowed(p)
+    if err:
+        logger.warning(f"[files] Blocked write: {err}")
+        return {"error": err, "written": False}
+
     if p.exists() and not overwrite:
         return {"error": f"File exists and overwrite=False: {path}", "written": False}
 
@@ -59,6 +148,13 @@ def write(path: str, content: str, overwrite: bool = True) -> dict:
 def append(path: str, content: str) -> dict:
     """Append content to a file."""
     p = Path(path).expanduser()
+    content = _coerce_content(content)
+
+    err = _check_write_allowed(p)
+    if err:
+        logger.warning(f"[files] Blocked append: {err}")
+        return {"error": err, "written": False}
+
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "a", encoding="utf-8") as f:
@@ -72,6 +168,12 @@ def append(path: str, content: str) -> dict:
 def patch(path: str, old_string: str, new_string: str) -> dict:
     """Replace exact string in a file. Fails if old_string not found."""
     p = Path(path).expanduser()
+
+    err = _check_write_allowed(p)
+    if err:
+        logger.warning(f"[files] Blocked patch: {err}")
+        return {"error": err, "patched": False}
+
     if not p.exists():
         return {"error": f"File not found: {path}", "patched": False}
 

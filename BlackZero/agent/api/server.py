@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -106,6 +107,14 @@ async def chat(req: ChatRequest):
         "tool_iterations":   0,
         "tool_call_pending": False,
         "_data_dir":         str(_data_dir),
+        # Cooperative deadline for the think node (see graph.py). asyncio.wait_for
+        # below can abandon the HTTP response at CHAT_TIMEOUT, but it cannot kill
+        # the executor thread running graph.invoke(). Passing this deadline lets
+        # the graph notice (between iterations) that the request has already
+        # timed out and stop issuing further LLM calls — bounding how long the
+        # orphaned thread keeps the local Ollama runner busy after the response
+        # has already gone back to the caller.
+        "_deadline":         time.monotonic() + CHAT_TIMEOUT,
     }
 
     try:
