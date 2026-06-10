@@ -42,3 +42,6 @@ brain_trainer/     # recreated by LaunchAgent on every boot — not tracked
 tools/blender-mcp/
 .venv*
 venv*
+
+# R&D agents (Luna/Sol) — own repo: github.com/MojoGlover/LunaSol_RandD
+R&D_Agents/
