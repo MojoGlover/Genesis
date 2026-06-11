@@ -23,6 +23,27 @@ _DESTRUCTIVE_PATTERNS = [
     "$(", "`",
 ]
 
+# Environment variables stripped from shell subprocesses — credentials and
+# secrets that shell commands shouldn't need but that would otherwise be
+# readable via `env`, error messages, or a malicious/compromised command.
+_SENSITIVE_ENV_PREFIXES = (
+    "ANTHROPIC_", "OPENAI_", "GOOGLE_", "GEMINI_", "GCP_",
+    "AWS_", "REPLICATE_", "ELEVENLABS_", "CIVITAI_",
+    "GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN",
+)
+_SENSITIVE_ENV_EXACT = ("SSH_AUTH_SOCK",)
+
+
+def _scrubbed_env() -> dict:
+    """Subprocess environment with API keys, cloud credentials, and the
+    SSH agent socket removed."""
+    return {
+        k: v for k, v in os.environ.items()
+        if k not in _SENSITIVE_ENV_EXACT
+        and not any(k.startswith(p) for p in _SENSITIVE_ENV_PREFIXES)
+    }
+
+
 # Default cwd: agent's root directory (set at boot, configurable via env)
 DEFAULT_CWD = os.environ.get("AGENT_WORK_DIR", str(Path(__file__).parents[3]))
 
@@ -53,6 +74,7 @@ def run(command: str, cwd: str = "", timeout: int = 60,
             text=True,
             timeout=timeout,
             cwd=effective_cwd,
+            env=_scrubbed_env(),
         )
         return {
             "stdout":     result.stdout,
