@@ -1,5 +1,5 @@
 """
-git_tool.py — Git operations for Engineer0.
+git_tool.py — Git operations for BlackZero agents.
 
 Wraps common git commands with safe defaults.
 Force pushes and hard resets require explicit confirmation.
@@ -34,7 +34,7 @@ def add(paths: str | list[str], repo_path: str = ".") -> str:
 
 def commit(message: str, repo_path: str = ".") -> str:
     # Always co-author with Claude
-    full_msg = f"{message}\n\nCo-Authored-By: Engineer0 <noreply@computerblack.ai>"
+    full_msg = f"{message}\n\nCo-Authored-By: Computer Black Agent <noreply@computerblack.ai>"
     return format_result(run(f'git commit -m "{full_msg}"', cwd=repo_path))
 
 

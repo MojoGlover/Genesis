@@ -1,5 +1,5 @@
 """
-web.py — Web fetch and search tools for Engineer0.
+web.py — Web fetch and search tools for BlackZero agents.
 
 Fetch URLs, search the web, scrape pages.
 Used for research, API calls, documentation lookup.
@@ -25,7 +25,7 @@ def fetch(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Engineer0/1.0 (Computer Black agent)"},
+            headers={"User-Agent": "ComputerBlack-Agent/1.0"},
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read(MAX_CONTENT_BYTES)
@@ -99,7 +99,7 @@ def api_call(url: str, method: str = "GET", headers: dict | None = None,
                 data = body.encode()
 
         req = urllib.request.Request(url, data=data, method=method)
-        req.add_header("User-Agent", "Engineer0/1.0")
+        req.add_header("User-Agent", "ComputerBlack-Agent/1.0")
         req.add_header("Content-Type", "application/json")
         if headers:
             for k, v in headers.items():

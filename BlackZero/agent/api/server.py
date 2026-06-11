@@ -38,7 +38,7 @@ _system_prompt:  str  = ""
 _ready:          bool = False
 
 MAX_MESSAGE_LEN = 32_000   # ~8K tokens — prevent context explosion
-CHAT_TIMEOUT    = 180      # seconds before abandoning a request
+CHAT_TIMEOUT    = 660      # seconds before abandoning a request — must stay > handler.py HANDLER_TIMEOUT (650); long tool chains need room
 
 
 def init(agent_id: str, graph, system_prompt: str, data_dir: Path,

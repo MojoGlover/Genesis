@@ -262,7 +262,8 @@ class TestToolCoverage:
 
     # registry.py is the LangGraph tool dispatch layer, not a capability adapter.
     # It will be migrated to the tool bus in Second Pass.
-    SKIP = {"__init__.py", "helper.py", "base_adapter.py", "registry.py"}
+    # base_tool.py is a base class, not a capability adapter.
+    SKIP = {"__init__.py", "helper.py", "base_adapter.py", "base_tool.py", "registry.py"}
 
     def test_every_tool_module_has_a_manifest(self):
         tool_dir = AGENT_DIR / "tools"

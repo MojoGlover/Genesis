@@ -39,6 +39,29 @@ _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _OPENAI_URL    = "https://api.openai.com/v1/chat/completions"
 _GEMINI_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+# $ per million tokens (input, output). Source: platform.claude.com pricing, 2026-06.
+# Prefix-matched against the model id. Unknown models fall back to Opus-tier so
+# cost is never UNDER-stated — the ledger must never record a cloud call as free.
+_CLOUD_PRICING = {
+    "claude-haiku-4-5":  (1.00, 5.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-opus-4-8":   (5.00, 25.00),
+    "claude-opus-4-7":   (5.00, 25.00),
+    "claude-opus-4-6":   (5.00, 25.00),
+}
+_DEFAULT_CLOUD_PRICING = (5.00, 25.00)
+
+
+def _cloud_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Compute real USD cost for a cloud call. Never returns 0 for nonzero usage."""
+    for prefix, (in_p, out_p) in _CLOUD_PRICING.items():
+        if model.startswith(prefix):
+            break
+    else:
+        in_p, out_p = _DEFAULT_CLOUD_PRICING
+        logger.warning(f"[gateway] No pricing entry for {model!r} — using Opus-tier estimate")
+    return round((input_tokens * in_p + output_tokens * out_p) / 1_000_000, 6)
+
 
 class GatewayError(Exception):
     pass
@@ -127,13 +150,12 @@ class GatewayClient:
         Raises GatewayError only if every path fails.
         """
 
-        # ── 1. Direct cloud — ONLY when the gateway is unavailable ─────────────
-        # DEFAULT routing goes THROUGH the gated model_gateway (block 2 below) so
-        # every paid call is cost-checked before it fires (Darnie's rule, 2026-06-05:
-        # "never allow a call without computing the cost"). Direct cloud is a
-        # fallback for when the gateway is disabled — never the normal path. The
-        # gateway applies per-agent budgets (Accountant-adjustable) and falls back
-        # to local on overspend.
+        # ── 1. Direct cloud — only when the local model_gateway is disabled ───
+        # NOTE: the Accountant pre-call spend gate (/spend/check) is NOT built yet.
+        # Until it exists, policy is: all agents stay on provider "ollama" and
+        # cloud_model/cloud_fallback stay empty (see cmptrblk/CLAUDE.md, Cloud API
+        # Policy). Cloud calls that do happen are cost-computed via _cloud_cost_usd
+        # and recorded in the ledger — never logged as $0.
         if not self.enabled and self.cloud_provider == "anthropic" and self.cloud_model and self._anthropic_key:
             try:
                 return self._anthropic_chat(messages, self.cloud_model, max_tokens, timeout,
@@ -263,7 +285,7 @@ class GatewayClient:
                 "tool_calls":    tool_calls,
                 "input_tokens":  usage.get("input_tokens", 0),
                 "output_tokens": usage.get("output_tokens", 0),
-                "cost_usd":      0.0,
+                "cost_usd":      _cloud_cost_usd(model, usage.get("input_tokens", 0), usage.get("output_tokens", 0)),
                 "latency_ms":    round((time.time() - t0) * 1000, 1),
             }
         except Exception as e:
@@ -296,7 +318,7 @@ class GatewayClient:
                 "tool_calls":    None,
                 "input_tokens":  usage.get("prompt_tokens", 0),
                 "output_tokens": usage.get("completion_tokens", 0),
-                "cost_usd":      0.0,
+                "cost_usd":      _cloud_cost_usd(model, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)),
                 "latency_ms":    round((time.time() - t0) * 1000, 1),
             }
         except Exception as e:
@@ -510,7 +532,7 @@ class GatewayClient:
                 "tool_calls":    tool_calls,
                 "input_tokens":  usage.get("promptTokenCount", 0),
                 "output_tokens": usage.get("candidatesTokenCount", 0),
-                "cost_usd":      0.0,
+                "cost_usd":      _cloud_cost_usd(model, usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0)),
                 "latency_ms":    round((time.time() - t0) * 1000, 1),
             }
         except Exception as e:

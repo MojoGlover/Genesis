@@ -13,13 +13,6 @@ Boot sequence:
 
 Single entry point. No loader.py, no cognitive loop, no dual boot paths.
 LangGraph only.
-
-Stamp slots (replaced by stamp.py):
-  {{AGENT_ID}}    — machine-readable id  (e.g. "engineer0")
-  {{AGENT_NAME}}  — display name         (e.g. "Engineer0")
-  {{AGENT_PORT}}  — HTTP API port        (e.g. 5001)
-  {{AGENT_MODEL}} — primary Ollama model (e.g. "engineer0:latest")
-  {{PLUGOPS_URL}} — PlugOps websocket    (e.g. "ws://…/ws/engineer0")
 """
 from __future__ import annotations
 
@@ -42,11 +35,16 @@ AGENT_DIR    = Path(__file__).parent
 MISSIONS_DIR = AGENT_DIR / "missions"
 
 
-async def _supervised(name: str, coro) -> None:
-    """Run a coroutine; swallow crashes so other gather tasks stay alive."""
+async def _supervised(name: str, coro, fatal: tuple = ()) -> None:
+    """Run a coroutine; swallow crashes so other gather tasks stay alive.
+    Exceptions in `fatal` are re-raised and bring the process down — used for
+    RegistrationRequired so the require_plugops rule actually exits the agent
+    (init system restarts it) instead of being silently absorbed here."""
     try:
         await coro
     except asyncio.CancelledError:
+        raise
+    except fatal:
         raise
     except Exception as e:
         logger.error(f"[{name}] Crashed: {e}")
@@ -127,10 +125,29 @@ async def main() -> None:
     graph = build_graph(config, system_prompt, data_dir, mods)
     logger.info("[graph] Ready — recall → think ⇄ tool → respond")
 
-    # ── 6. Bootstrap mission check ────────────────────────────────────────────
-    # model_ready = True means the LLM gateway responded during bootstrap.
-    # /health returns "starting" until this is confirmed.
-    model_ready = True   # bootstrap check removed; gateway probed at first real request
+    # ── 6. Model readiness probe ──────────────────────────────────────────────
+    # /health returns "starting" until the model answers a probe; set_ready()
+    # flips it to "ok". Runs in the background so boot is not blocked.
+    model_ready = False
+
+    async def _probe_model() -> None:
+        from agent.api.server import set_ready
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: mods.gateway.chat_for(
+                        [{"role": "user", "content": "ping"}],
+                        task_type="fast", max_tokens=8, timeout=30.0,
+                    ),
+                )
+                if result.get("content") is not None:
+                    set_ready()
+                    return
+            except Exception as e:
+                logger.warning(f"[boot] Model probe failed: {e!r} — retrying in 30s")
+            await asyncio.sleep(30)
 
     # ── 7. PlugOps bridge ─────────────────────────────────────────────────────
     from agent.plugops.bridge import PlugOpsBridge, RegistrationRequired
@@ -154,6 +171,7 @@ async def main() -> None:
         config=config.get("plugops", {}),
         on_message_callback=None,
         require_registration=require_plugops,
+        role=identity.role,
     )
 
     handler = MessageHandler(graph=graph, bridge=bridge,
@@ -188,8 +206,9 @@ async def main() -> None:
     try:
         await asyncio.gather(
             api_server.serve(),
-            _supervised("bridge",   bridge.connect()),
+            _supervised("bridge",   bridge.connect(), fatal=(RegistrationRequired,)),
             _supervised("registry", mods.registry.heartbeat_loop(agent_id)),
+            _supervised("model-probe", _probe_model()),
             *[_supervised(f"loop-{i}", loop) for i, loop in enumerate(loops)],
         )
     finally:

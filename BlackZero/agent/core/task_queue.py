@@ -1,11 +1,11 @@
 """
-task_queue.py — Persistent task queue for Engineer0's autonomous loop.
+task_queue.py — Persistent task queue for the agent's autonomous loop.
 
-Zee checks this every check_interval_seconds. Any OPEN task gets picked up,
+The agent checks this every check_interval_seconds. Any OPEN task gets picked up,
 run through the full ReAct graph, and marked DONE or FAILED.
 
 Schema:
-    ~/.engineer0/tasks.db → tasks table
+    <data_dir>/tasks.db → tasks table
 
 Task lifecycle:
     open → in_progress → done

@@ -1,5 +1,5 @@
 """
-registry.py — Tool registry for Engineer0's ReAct loop.
+registry.py — Tool registry for the BlackZero agent ReAct loop.
 
 Maps tool names to functions. Generates tool documentation injected
 into the system prompt so the LLM knows what it can do and how to call it.
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -363,7 +364,7 @@ call another tool. When done, output your final response as plain text.
 
 **git_status** — Git status for a repo
 ```json
-{"tool": "git_status", "params": {"repo_path": "~/projects/Engineer0"}}
+{"tool": "git_status", "params": {"repo_path": "~/projects/myrepo"}}
 ```
 
 **git_add** — Stage files
@@ -753,7 +754,7 @@ def build_executor() -> Callable[[str, dict], str]:
                 return "\n".join(lines)
 
             else:
-                _flag_missing_tool(tool_name, agent_id="engineer0", priority=1)
+                _flag_missing_tool(tool_name, agent_id=os.environ.get("AGENT_ID", "blackzero"), priority=1)
                 return f"Unknown tool: '{tool_name}'. This gap has been flagged to EngineerV for immediate resolution."
 
         except TypeError as e:

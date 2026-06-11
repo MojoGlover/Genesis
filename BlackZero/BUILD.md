@@ -11,12 +11,12 @@ BlackZero is **fully implemented and runnable.**
 Boot sequence verified:
 - ✅ Mission loads and parses
 - ✅ System prompt builds correctly
-- ✅ LangGraph compiles: `recall → think → respond`
+- ✅ LangGraph compiles: `recall → think ⇄ tool → respond`
 - ✅ Bootstrap check passes (LLM acknowledges mission)
-- ✅ Live graph invocation works (full recall → think → respond cycle)
+- ✅ Live graph invocation works (full recall → think ⇄ tool → respond cycle)
 - ✅ Memory writes to SQLite and reads back
 
-To run: `./start.sh blackzero` or `python3 main_agent.py`
+To run: `./start.sh blackzero` or `python3 main.py`
 
 Engineer0 is a stamped agent that was built from this template.
 BlackZero is now the canonical source again.
@@ -36,7 +36,7 @@ Every agent in the system is stamped from this template.
 It is NOT a product. It is infrastructure.
 
 Architecture:
-- **LangGraph** state machine (`recall → think → respond`)
+- **LangGraph** state machine (`recall → think ⇄ tool → respond`)
 - **LangChain + ChatOllama** for local LLM calls
 - **PlugOps WebSocket bridge** for agent-to-agent comms
 - **ChromaDB + sentence-transformers** for RAG memory

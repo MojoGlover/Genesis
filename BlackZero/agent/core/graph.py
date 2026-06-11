@@ -1,5 +1,5 @@
 """
-graph.py — LangGraph ReAct state machine for Engineer0.
+graph.py — LangGraph ReAct state machine for BlackZero agents.
 
 Graph: recall → think ⇄ tool → respond
 
@@ -8,7 +8,7 @@ Graph: recall → think ⇄ tool → respond
 - tool:    policy check → execute tool; counter to obs; malformed call repair
 - respond: save exchange to mind_state; health beat to obs
 
-Engineer0-specific intelligence (beyond BlackZero base):
+Built-in intelligence:
   - TOOL_DOCS injected into every system prompt (she always has tools)
   - ANTI_HALLUCINATION_RULES injected into every system prompt
   - Widened _requires_tool_use — catches creation/build/read tasks
@@ -49,7 +49,7 @@ MAX_TOOL_ITERATIONS  = 6   # hard cap for action tasks (_requires_tool_use = Tru
 MAX_CHAT_TOOL_ITER   = 2   # cap for spontaneous tool use on conversational messages
 
 # Hard ceiling on a single LLM call made from the think node. Bounded well
-# under /api/chat's CHAT_TIMEOUT (180s) so that even if asyncio.wait_for()
+# under /api/chat's CHAT_TIMEOUT (660s) so that even if asyncio.wait_for()
 # times out the HTTP response while a call is in flight, the executor thread
 # is guaranteed to come back within this many seconds — at which point the
 # deadline check below ends the loop instead of starting another call.
@@ -725,7 +725,7 @@ def should_continue(state: dict) -> str:
 # ── Graph builder ──────────────────────────────────────────────────────────────
 
 def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules"):
-    """Build and compile the Engineer0 ReAct graph."""
+    """Build and compile the BlackZero ReAct graph."""
     execute_tool     = build_executor()
     registry_dir     = Path(__file__).resolve().parent.parent.parent / "registry"
     router           = CapabilityRouter(registry_dir)

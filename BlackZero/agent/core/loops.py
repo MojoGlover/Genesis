@@ -257,7 +257,7 @@ async def todo_loop(
     interval: int = 60,
 ) -> None:
     """
-    Read ~/engineer0-sandbox/TODO.md every `interval` seconds.
+    Read ~/agent-sandbox/TODO.md every `interval` seconds.
     Pick the next unchecked item, work on it in the sandbox, mark done when finished.
     Results are committed to the sandbox git repo if tests pass.
     """
@@ -441,12 +441,13 @@ def build_loops(config: dict, graph, data_dir: Path, agent_name: str) -> list:
     autonomy     = config.get("autonomy", {})
     loop_configs = autonomy.get("loops", [])
 
+    # Rule: autonomy is opt-in. A default task_loop fired an LLM call every 30s
+    # on every stamped agent — hammering local Ollama, and a silent cost risk if
+    # an agent is ever pointed at a cloud provider. Configure autonomy.loops in
+    # config.yaml explicitly to enable loops.
     if not loop_configs:
-        logger.info("[loops] No autonomy config — using defaults: task_loop + heartbeat_loop")
-        return [
-            task_loop(graph, data_dir, interval=30),
-            heartbeat_loop(data_dir, agent_name, interval=60),
-        ]
+        logger.info("[loops] No autonomy config — no autonomous loops started")
+        return []
 
     coroutines = []
     for lc in loop_configs:
@@ -474,8 +475,8 @@ def build_loops(config: dict, graph, data_dir: Path, agent_name: str) -> list:
 
         elif loop_type == "todo_loop":
             sandbox_cfg  = config.get("sandbox", {})
-            todo_file    = sandbox_cfg.get("todo_file", "~/engineer0-sandbox/TODO.md")
-            sandbox_path = sandbox_cfg.get("path", "~/engineer0-sandbox")
+            todo_file    = sandbox_cfg.get("todo_file", "~/agent-sandbox/TODO.md")
+            sandbox_path = sandbox_cfg.get("path", "~/agent-sandbox")
             coroutines.append(todo_loop(
                 graph, data_dir,
                 todo_file=todo_file,

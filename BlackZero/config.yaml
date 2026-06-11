@@ -5,6 +5,8 @@
 identity:
   designation: "BlackZero"
   alias:        "blackzero"
+  name:         "BlackZero"
+  id:           "blackzero"
   role:         "Base agent template — replace via stamp.py"
   owner:        "Computer Black"
   capabilities: ["chat"]
@@ -14,6 +16,10 @@ data_dir: "~/.blackzero"
 
 # HTTP port (stamp.py rewrites this)
 port: 5001
+
+# HTTP API port — read by main.py and registry.register (stamp.py rewrites this)
+api:
+  port: 5001
 
 # Model configuration
 # provider: ollama | anthropic | openai

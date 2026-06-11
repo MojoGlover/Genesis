@@ -1,5 +1,5 @@
 """
-state.py — Pydantic models for all Engineer0 agent state.
+state.py — Pydantic models for all BlackZero agent state.
 Every piece of data that moves through the agent is typed here.
 """
 from __future__ import annotations

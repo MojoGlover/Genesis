@@ -50,6 +50,7 @@ class PlugOpsBridge:
         on_message_callback: Callable[[dict], Awaitable[None]],
         config: dict | None = None,
         require_registration: bool = True,
+        role: str = "",
     ) -> None:
         cfg = config or {}
         # Accept ws:// or http:// — normalise to http://
@@ -60,6 +61,7 @@ class PlugOpsBridge:
         self.agent_name          = agent_name
         self.capabilities        = capabilities
         self.on_message_callback = on_message_callback
+        self._role               = role
         self._heartbeat_secs     = cfg.get("heartbeat_seconds", 10)
         self._backoff_max        = cfg.get("reconnect_max_seconds", 30)
         # Grid location — used in registration so PlugOps can build api_url.
@@ -147,8 +149,8 @@ class PlugOpsBridge:
                     "base_dir":     f"/agents/{self.agent_id}",
                     "capabilities": self.capabilities,
                     "metadata": {
-                        "emoji": "⚙️",
-                        "role":  "Systems, code & infrastructure",
+                        "emoji": "🤖",
+                        "role":  self._role or "Computer Black agent",
                     },
                 }
                 # Include host+port so PlugOps can derive api_url for grid resolution.

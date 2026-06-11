@@ -3,7 +3,7 @@ agent/core/audit.py — Capability health audit CLI for BlackZero v2 Third Pass.
 
 Usage:
     python3 -m agent.core.audit
-    python3 -m agent.core.audit --data-dir ~/.engineer0 --registry-dir registry/
+    python3 -m agent.core.audit --data-dir ~/.blackzero --registry-dir registry/
 
 Reads:
     evidence_results.jsonl   — tool execution history
