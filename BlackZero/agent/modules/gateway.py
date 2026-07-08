@@ -33,7 +33,14 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _FALLBACK_TIMEOUT = 120.0
-_OLLAMA_PRESSURE_RESET_EVERY = 8  # force model unload every N calls to prevent OOM crash under sustained load
+# Periodic forced model unload was an OOM guard from the per-agent-persona-model
+# era, when many distinct 7B models could accumulate in memory. Under the
+# shared-model policy (2026-07-08: llama3.2:3b + qwen2.5-coder:7b fleet-wide)
+# the host-level guard OLLAMA_MAX_LOADED_MODELS=2 bounds memory instead, and
+# flushing just re-inflicts the 30-60s cold start it was built to manage.
+# 0 = disabled (default). Set OLLAMA_PRESSURE_RESET_EVERY=N to re-enable on a
+# memory-constrained host running many models.
+_OLLAMA_PRESSURE_RESET_EVERY = int(os.environ.get("OLLAMA_PRESSURE_RESET_EVERY", "0"))
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _OPENAI_URL    = "https://api.openai.com/v1/chat/completions"
@@ -336,24 +343,25 @@ class GatewayClient:
         """
         t0 = time.time()
         try:
-            self._ollama_call_count += 1
-            if self._ollama_call_count >= _OLLAMA_PRESSURE_RESET_EVERY:
-                keep_alive = 0
-                self._ollama_call_count = 0
-                logger.warning(
-                    f"[gateway] Ollama memory reset at call {_OLLAMA_PRESSURE_RESET_EVERY} "
-                    f"— flushing model from memory (next call will cold-start ~30-60s)"
-                )
-            else:
-                keep_alive = 3600
-
             body: dict = {
                 "model":      model,
                 "messages":   messages,
                 "options":    {"num_predict": max_tokens, "num_ctx": num_ctx},
                 "stream":     False,
-                "keep_alive": keep_alive,
             }
+            # Flush guard disabled (the default): omit keep_alive so the host's
+            # OLLAMA_KEEP_ALIVE policy decides residency.
+            if _OLLAMA_PRESSURE_RESET_EVERY:
+                self._ollama_call_count += 1
+                if self._ollama_call_count >= _OLLAMA_PRESSURE_RESET_EVERY:
+                    body["keep_alive"] = 0
+                    self._ollama_call_count = 0
+                    logger.warning(
+                        f"[gateway] Ollama memory reset at call {_OLLAMA_PRESSURE_RESET_EVERY} "
+                        f"— flushing model from memory (next call will cold-start ~30-60s)"
+                    )
+                else:
+                    body["keep_alive"] = 3600
             if tools:
                 body["tools"] = tools
             r = httpx.post(f"{base_url}/api/chat", json=body, timeout=timeout)
@@ -407,24 +415,25 @@ class GatewayClient:
         """Direct Ollama fallback. num_ctx capped at 4096 for local model on plugfoe."""
         t0 = time.time()
         try:
-            self._ollama_call_count += 1
-            if self._ollama_call_count >= _OLLAMA_PRESSURE_RESET_EVERY:
-                keep_alive = 0
-                self._ollama_call_count = 0
-                logger.warning(
-                    f"[gateway] Ollama memory reset at call {_OLLAMA_PRESSURE_RESET_EVERY} "
-                    f"— flushing model from memory (next call will cold-start ~30-60s)"
-                )
-            else:
-                keep_alive = 3600
-
             body: dict = {
                 "model":      self.fallback_model,
                 "messages":   messages,
                 "options":    {"num_predict": max_tokens, "num_ctx": num_ctx},
                 "stream":     False,
-                "keep_alive": keep_alive,
             }
+            # Flush guard disabled (the default): omit keep_alive so the host's
+            # OLLAMA_KEEP_ALIVE policy decides residency.
+            if _OLLAMA_PRESSURE_RESET_EVERY:
+                self._ollama_call_count += 1
+                if self._ollama_call_count >= _OLLAMA_PRESSURE_RESET_EVERY:
+                    body["keep_alive"] = 0
+                    self._ollama_call_count = 0
+                    logger.warning(
+                        f"[gateway] Ollama memory reset at call {_OLLAMA_PRESSURE_RESET_EVERY} "
+                        f"— flushing model from memory (next call will cold-start ~30-60s)"
+                    )
+                else:
+                    body["keep_alive"] = 3600
             if tools:
                 body["tools"] = tools
 

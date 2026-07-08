@@ -29,30 +29,37 @@ api:
 model:
   provider:       "ollama"
   cloud_model:    ""                       # e.g. claude-haiku-4-5 or gpt-4o-mini
-  primary:        "blackzero-hardened:latest"  # gateway model_id (ollama path)
-  fallback:       "blackzero-hardened:latest"  # direct ollama fallback
+  primary:        "qwen2.5-coder:7b"       # gateway model_id (ollama path)
+  fallback:       "qwen2.5-coder:7b"       # direct ollama fallback
   cloud_fallback: ""                       # last-resort Anthropic model
   # Ordered fallback chain — first host that responds wins.
-  # stamp.py sets the model name per-agent. Keep URLs from shared.env.
+  # Keep URLs from shared.env.
   ollama_hosts:
     - name: plugfoe
       url: "http://100.67.171.41:11434"
-      model: "blackzero-hardened:latest"
+      model: "qwen2.5-coder:7b"
     - name: plugwan
       url: "http://100.113.209.66:11434"
-      model: "blackzero-hardened:latest"
+      model: "qwen2.5-coder:7b"
 
-# Per-task model routing (stamp.py rewrites these for each agent)
-# Split brain: inference models handle tool loops + reasoning (quality matters);
-# speech model handles final user-facing delivery (speed matters).
+# Per-task model routing.
+# SHARED-MODEL POLICY (Darnie, 2026-07-08): all agents share the same two
+# models — a fast speech model (llama3.2:3b) for conversation/delivery and a
+# deep-thinking model (qwen2.5-coder:7b) for tool loops, reasoning, and code.
+# Persona lives in the mission file + system prompt, NOT in custom model
+# weights. Rationale: per-agent persona models (agent_id:latest) forced
+# constant model swapping on one-box hosts (60-90s reload per role switch)
+# and made multi-node routing require syncing N custom models everywhere.
+# Two shared models fit resident in RAM together and exist on every node.
+# Both must support native tool calling (rules out phi4).
+# Override with stamp.py --model only when an agent truly needs custom weights.
 models:
-  chat:      "blackzero-hardened:latest"  # general conversation
-  reasoning: "blackzero-hardened:latest"  # tool use, problem solving
-  fast:      "blackzero-hardened:latest"  # mid-loop tool calls (must output JSON)
+  chat:      "llama3.2:3b"                # general conversation (speech-class)
+  reasoning: "qwen2.5-coder:7b"           # tool use, problem solving
+  fast:      "llama3.2:3b"                # mid-loop tool calls (must output JSON)
   code:      "qwen2.5-coder:7b"           # code generation
   embedding: "all-mpnet-base-v2"
   # Speech brain — takes inference output and delivers it to the user cleanly.
-  # Use a small fast model here: llama3.2:3b locally, or cloud haiku as fallback.
   # If empty, respond node skips the speech pass and returns inference output as-is.
   speech:    "llama3.2:3b"               # fast delivery layer
 
