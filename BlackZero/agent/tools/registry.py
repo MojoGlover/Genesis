@@ -753,6 +753,11 @@ def build_executor() -> Callable[[str, dict], str]:
                     lines.append(f"  {name} ({alias}) — {status}  [{caps}]")
                 return "\n".join(lines)
 
+            elif tool_name in _CUSTOM_EXECUTORS:
+                # Per-agent custom tool (folded in via custom_tools.py — see seam
+                # at end of file). Result is coerced to str for the LLM context.
+                return str(_CUSTOM_EXECUTORS[tool_name](**params))
+
             else:
                 _flag_missing_tool(tool_name, agent_id=os.environ.get("AGENT_ID", "blackzero"), priority=1)
                 return f"Unknown tool: '{tool_name}'. This gap has been flagged to EngineerV for immediate resolution."
@@ -884,3 +889,39 @@ def parse_tool_call(text: str) -> dict | None:
             return parsed
 
     return None
+
+
+# ── Per-agent custom tools (the build_agent seam) ──────────────────────────────
+# An agent gains tools WITHOUT editing this file: drop `agent/tools/custom_tools.py`
+# defining any of these module-level names (all optional):
+#     CUSTOM_SCHEMAS:     list[dict]           — MCP schemas (tool discovery)
+#     CUSTOM_OLLAMA_DEFS: list[dict]           — native tool-calling defs
+#     CUSTOM_DOCS:        str                  — prompt docs so the model can call them
+#     CUSTOM_TOOLS:       dict[str, callable]  — tool_name -> fn(**params) -> str|obj
+# They are auto-merged at import here, so the model sees them (docs + defs),
+# discovery lists them (schemas), and the executor dispatches them (CUSTOM_TOOLS).
+# This is what lets build_agent add e.g. the Accountant's billing tools by copying
+# one file — no surgery on this registry. Absent file/attrs are a no-op.
+_CUSTOM_EXECUTORS: dict[str, Callable[..., Any]] = {}
+
+
+def _load_custom_tools() -> None:
+    global TOOL_DOCS, _CUSTOM_EXECUTORS
+    try:
+        from agent.tools import custom_tools as _ct  # type: ignore
+    except Exception:
+        return  # no custom tools for this agent — normal for plain agents
+    try:
+        TOOL_SCHEMAS.extend(getattr(_ct, "CUSTOM_SCHEMAS", []) or [])
+        OLLAMA_TOOL_DEFS.extend(getattr(_ct, "CUSTOM_OLLAMA_DEFS", []) or [])
+        _doc = (getattr(_ct, "CUSTOM_DOCS", "") or "").strip()
+        if _doc:
+            TOOL_DOCS = TOOL_DOCS + "\n\n" + _doc
+        _CUSTOM_EXECUTORS.update(getattr(_ct, "CUSTOM_TOOLS", {}) or {})
+        logger.info(f"[registry] loaded {len(_CUSTOM_EXECUTORS)} custom tool(s): "
+                    f"{', '.join(sorted(_CUSTOM_EXECUTORS)) or '(none)'}")
+    except Exception as e:
+        logger.error(f"[registry] custom_tools.py failed to load: {e!r}")
+
+
+_load_custom_tools()
