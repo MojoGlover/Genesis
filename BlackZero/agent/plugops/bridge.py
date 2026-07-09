@@ -145,8 +145,12 @@ class PlugOpsBridge:
 
     # ── internals ─────────────────────────────────────────────────────────
 
-    async def _register(self, retries: int = 20, delay: float = 0.5) -> None:
+    async def _register(self, retries: int = 12, delay: float = 1.0) -> None:
+        # Exponential backoff (was fixed 0.5s) — a fixed short delay turns a
+        # transient rejection (e.g. PlugOps hasn't reloaded KNOWN_AGENTS yet)
+        # into a rapid-fire alert flood + restart-loop instead of a patient wait.
         assert self._client is not None
+        backoff = delay
         for attempt in range(retries):
             try:
                 payload: dict = {
@@ -178,7 +182,8 @@ class PlugOpsBridge:
                 logger.warning(f"[bridge] register returned {r.status_code}")
             except Exception as e:
                 logger.warning(f"[bridge] register attempt {attempt+1}: {e!r}")
-            await asyncio.sleep(delay)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, self._backoff_max)
         logger.error("[bridge] Could not register with PlugOps after retries")
         if self._require_registration:
             raise RegistrationRequired(
