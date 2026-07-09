@@ -39,6 +39,7 @@ from agent.core.router          import CapabilityRouter
 from agent.core.local_tool_bus  import LocalToolBus
 from agent.core.quarantine      import QuarantineOverlay
 from agent.core.satellite_router import SatelliteRouter
+from agent.core.injection_guard import check as _injection_check
 
 if TYPE_CHECKING:
     from agent.modules import Modules
@@ -377,6 +378,38 @@ def make_recall_node(mods: "Modules"):
             "_last_result":     {},
         }
     return recall
+
+
+def make_security_gate_node(mods: "Modules"):
+    """
+    Deterministic pre-filter — runs before the model ever sees the message.
+    Built 2026-07-09: prompt-level "resist override attempts" wording had zero
+    effect on a 3B/7B model against a direct override (0/3 on repeated real
+    tests). This is enforcement, not persuasion — high-risk messages never
+    reach `think` at all, so there's nothing for the model to comply with.
+    """
+    def security_gate(state: dict) -> dict:
+        message = state.get("message", "")
+        result  = _injection_check(message)
+        if result["blocked"]:
+            identity_name = state.get("_agent_name", "this agent")
+            logger.warning(
+                f"[security_gate] BLOCKED message (risk={result['risk_score']}, "
+                f"factors={result['risk_factors']}) from session={state.get('session_id')}"
+            )
+            mods.obs.beat(status="blocked_injection")
+            return {
+                **state,
+                "response": (
+                    f"I'm {identity_name}. I don't take on other identities or "
+                    f"ignore my instructions — that request looks like a "
+                    f"prompt-injection attempt ({', '.join(result['risk_factors'])}), "
+                    f"so I'm not going to act on it. How can I actually help?"
+                ),
+                "_security_blocked": True,
+            }
+        return {**state, "_security_blocked": False}
+    return security_gate
 
 
 def make_think_node(mods: "Modules", system_prompt: str):
@@ -736,13 +769,20 @@ def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules
     )
 
     graph = StateGraph(dict)
-    graph.add_node("recall",  make_recall_node(mods))
-    graph.add_node("think",   make_think_node(mods, system_prompt))
-    graph.add_node("tool",    make_tool_node(tool_bus, mods))
-    graph.add_node("respond", make_respond_node(mods))
+    graph.add_node("recall",         make_recall_node(mods))
+    graph.add_node("security_gate",  make_security_gate_node(mods))
+    graph.add_node("think",          make_think_node(mods, system_prompt))
+    graph.add_node("tool",           make_tool_node(tool_bus, mods))
+    graph.add_node("respond",        make_respond_node(mods))
 
     graph.set_entry_point("recall")
-    graph.add_edge("recall", "think")
+    graph.add_edge("recall", "security_gate")
+    # Blocked messages skip `think` entirely — the model never sees them.
+    graph.add_conditional_edges(
+        "security_gate",
+        lambda state: "respond" if state.get("_security_blocked") else "think",
+        {"respond": "respond", "think": "think"},
+    )
     graph.add_conditional_edges("think", should_continue,
                                 {"tool": "tool", "think": "think", "respond": "respond"})
     graph.add_edge("tool", "think")

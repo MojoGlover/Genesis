@@ -20,6 +20,7 @@ The recall node calls it on every invocation via state["_data_dir"].
 from __future__ import annotations
 import logging
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -27,7 +28,18 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Bug found 2026-07-09: /api/chat runs graph.invoke() via loop.run_in_executor,
+# which can hand different requests to different threadpool threads. sqlite3
+# connections default to check_same_thread=True, so a connection cached here
+# under one thread would silently fail (ProgrammingError) when reused from
+# another — and _local_get/_local_save swallowed the exception entirely,
+# so turns randomly vanished from conversation memory with zero trace in logs.
+# Fix: check_same_thread=False (connection usable from any thread) + a lock
+# per connection (a single sqlite3.Connection still isn't safe for truly
+# concurrent access — the lock serializes it, which is fine at chat-request
+# volume).
 _FALLBACK_DB: dict[str, sqlite3.Connection] = {}
+_FALLBACK_LOCKS: dict[str, threading.Lock] = {}
 
 
 class MindStateClient:
@@ -164,13 +176,15 @@ class MindStateClient:
 
     # ── SQLite ────────────────────────────────────────────────────────────────
 
-    def _db(self) -> sqlite3.Connection | None:
+    def _db(self) -> tuple[sqlite3.Connection, threading.Lock] | tuple[None, None]:
         if not self._fallback:
-            return None
+            return None, None
         db_path = self._fallback / "memory.db"
         key = str(db_path)
         if key not in _FALLBACK_DB:
-            conn = sqlite3.connect(key)
+            # check_same_thread=False: /api/chat invokes the graph via
+            # run_in_executor, which can use a different thread per request.
+            conn = sqlite3.connect(key, check_same_thread=False)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS conversations (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,36 +196,44 @@ class MindStateClient:
             """)
             conn.commit()
             _FALLBACK_DB[key] = conn
-        return _FALLBACK_DB[key]
+            _FALLBACK_LOCKS[key] = threading.Lock()
+        return _FALLBACK_DB[key], _FALLBACK_LOCKS[key]
 
     def _local_get(self, session_id: str, limit: int) -> list[str]:
         try:
-            conn = self._db()
+            conn, lock = self._db()
             if not conn:
                 return []
-            rows = conn.execute(
-                "SELECT role, content FROM conversations "
-                "WHERE session_id=? ORDER BY id DESC LIMIT ?",
-                (session_id, limit),
-            ).fetchall()
+            with lock:
+                rows = conn.execute(
+                    "SELECT role, content FROM conversations "
+                    "WHERE session_id=? ORDER BY id DESC LIMIT ?",
+                    (session_id, limit),
+                ).fetchall()
             return [f"{role}: {content}" for role, content in reversed(rows)]
-        except Exception:
+        except Exception as e:
+            # Was a silent `except: return []` — the exact bug that made turns
+            # vanish from memory with no trace. Log it now so a recurrence (or
+            # a different failure mode) is visible instead of invisible.
+            logger.error(f"[mind_state] get_recent failed for session={session_id!r}: {e!r}")
             return []
 
     def _local_save(self, session_id: str, human: str, assistant: str) -> None:
         try:
-            conn = self._db()
+            conn, lock = self._db()
             if not conn:
                 return
             ts = time.strftime("%Y-%m-%dT%H:%M:%S")
-            conn.execute(
-                "INSERT INTO conversations (session_id,role,content,ts) VALUES (?,?,?,?)",
-                (session_id, "human", human, ts),
-            )
-            conn.execute(
-                "INSERT INTO conversations (session_id,role,content,ts) VALUES (?,?,?,?)",
-                (session_id, "assistant", assistant, ts),
-            )
-            conn.commit()
-        except Exception:
-            pass
+            with lock:
+                conn.execute(
+                    "INSERT INTO conversations (session_id,role,content,ts) VALUES (?,?,?,?)",
+                    (session_id, "human", human, ts),
+                )
+                conn.execute(
+                    "INSERT INTO conversations (session_id,role,content,ts) VALUES (?,?,?,?)",
+                    (session_id, "assistant", assistant, ts),
+                )
+                conn.commit()
+        except Exception as e:
+            # Was a silent `except: pass` — see _local_get comment above.
+            logger.error(f"[mind_state] save failed for session={session_id!r}: {e!r}")

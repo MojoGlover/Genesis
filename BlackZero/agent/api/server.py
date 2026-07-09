@@ -147,6 +147,7 @@ async def chat(req: ChatRequest):
         "tool_iterations":   0,
         "tool_call_pending": False,
         "_data_dir":         str(_data_dir),
+        "_agent_name":       _agent_id,
         # Cooperative deadline for the think node (see graph.py). asyncio.wait_for
         # below can abandon the HTTP response at CHAT_TIMEOUT, but it cannot kill
         # the executor thread running graph.invoke(). Passing this deadline lets
