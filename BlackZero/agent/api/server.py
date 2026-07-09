@@ -19,11 +19,14 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from agent.modules import Modules
+
+# Tool results indicating failure — sets the Tool Bus executor's ok=false flag.
+_ERROR_PREFIXES = ("error:", "unknown tool", "tool error", "tool '")
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,11 @@ class ChatRequest(BaseModel):
     session_id: str = "default"
 
 
+class ToolRequest(BaseModel):
+    tool:   str
+    params: dict = Field(default_factory=dict)
+
+
 class ChatResponse(BaseModel):
     agent:    str
     response: str
@@ -90,6 +98,38 @@ async def tools():
     """MCP-compatible tool discovery endpoint. Returns JSON Schema descriptors for all tools."""
     from agent.tools.registry import list_tools
     return {"agent": _agent_id, "tools": list_tools()}
+
+
+@app.post("/api/tools/execute")
+async def execute_tool(req: ToolRequest, x_agent_id: str = Header(default="")):
+    """
+    Tool Bus executor endpoint — lets this agent HOST its tools for the grid.
+
+    Any registered agent (or PlugOps on their behalf) calls this over HTTP;
+    PlugOps proxies here via POST /api/v1/tools/execute, resolving this agent's
+    URL via GridResolver. This is what makes a specialized agent (e.g. the
+    Accountant hosting its financial tools) usable by others — they borrow the
+    tool without carrying its code.
+
+    Auth: X-Agent-Id header required (any non-empty registered agent). PlugOps is
+    the trust boundary; per-agent tool authorization is added in the auth phase.
+
+    Request:  {"tool": "ledger_stats", "params": {}}
+    Response: {"result": "...", "ok": true, "tool": "ledger_stats"}
+    """
+    if not x_agent_id:
+        raise HTTPException(status_code=401, detail="X-Agent-Id header required")
+
+    from agent.tools.registry import build_executor
+    execute = build_executor()
+    try:
+        result = execute(req.tool, req.params)
+        ok = not result.lower().startswith(_ERROR_PREFIXES)
+        logger.info(f"[api/tools] {x_agent_id} called {req.tool} → ok={ok}")
+        return {"result": result, "ok": ok, "tool": req.tool}
+    except Exception as e:
+        logger.error(f"[api/tools] {req.tool} failed for {x_agent_id}: {e}")
+        return {"result": f"error: {e}", "ok": False, "tool": req.tool}
 
 
 @app.post("/api/chat", response_model=ChatResponse)

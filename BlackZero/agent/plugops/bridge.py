@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Callable, Awaitable
 
@@ -64,10 +65,16 @@ class PlugOpsBridge:
         self._role               = role
         self._heartbeat_secs     = cfg.get("heartbeat_seconds", 10)
         self._backoff_max        = cfg.get("reconnect_max_seconds", 30)
-        # Grid location — used in registration so PlugOps can build api_url.
-        # Set in config.yaml as plugops.host and plugops.port (agent's own address).
-        self._host: str | None   = cfg.get("host")
-        self._port: int | None   = cfg.get("port")
+        # Grid location — registered so PlugOps can build api_url and route the
+        # Tool Bus (/api/v1/tools/execute) to this agent as an executor.
+        # The host FOLLOWS THE PLUG, so it must not be baked per-agent: prefer the
+        # per-plug env var PLUG_HOST (set in the systemd/launchd unit — e.g.
+        # plugfoe's Tailscale IP 100.67.171.41; a RunPod IP if the agent moves).
+        # AGENT_PORT is the agent's own API port. Both fall back to config.yaml
+        # (plugops.host / plugops.port) for a fixed deployment.
+        self._host: str | None   = os.environ.get("PLUG_HOST") or cfg.get("host")
+        _port_raw                = os.environ.get("AGENT_PORT") or cfg.get("port")
+        self._port: int | None   = int(_port_raw) if _port_raw else None
         # If PlugOps goes silent, reconnect after this many seconds with no event.
         # PlugOps must send keepalive SSE comments (": keepalive") at a shorter interval.
         self._sse_read_timeout   = cfg.get("sse_read_timeout_seconds", 90)
