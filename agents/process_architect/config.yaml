@@ -9,13 +9,14 @@ identity:
 data_dir: ~/.process_architect
 port: 5020
 models:
-  chat: blackzero-hardened:latest
-  reasoning: blackzero-hardened:latest
-  fast: blackzero-hardened:latest
-  code: qwen2.5-coder:3b
+  chat: llama3.2:3b
+  reasoning: qwen2.5-coder:7b
+  fast: llama3.2:3b
+  code: qwen2.5-coder:7b
   embedding: all-mpnet-base-v2
+  speech: llama3.2:3b
 plugops:
-  url: https://plugzero-581737577470.us-central1.run.app
+  url: http://100.67.171.41:9000
   heartbeat_seconds: 10
   reconnect_max_seconds: 30
 modules:
@@ -53,10 +54,15 @@ modules:
 logging:
   level: INFO
 model:
-  provider: anthropic
-  cloud_model: claude-haiku-4-5
-  primary: ''
-  fallback: ''
+  # Fixed 2026-07-09: was provider: anthropic / cloud_model: claude-haiku-4-5,
+  # a cloud provider committed with no authorization — violates the standing
+  # "no agent runs cloud inference without Darnie's explicit go-ahead" rule.
+  # Reset to the shared-model policy (llama3.2:3b / qwen2.5-coder:7b) like
+  # every other agent.
+  provider: ollama
+  primary:  qwen2.5-coder:7b
+  fallback: qwen2.5-coder:7b
+  cloud_model: ''
   task_provider: ollama
-  task_ollama: http://100.113.209.66:11434
-  task_model: phi4:14b
+  task_ollama: ''
+  task_model: qwen2.5-coder:7b

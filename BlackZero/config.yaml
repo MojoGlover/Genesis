@@ -65,7 +65,13 @@ models:
 
 # PlugOps bridge config
 plugops:
-  url:                   "https://plugzero-581737577470.us-central1.run.app"
+  # Fixed 2026-07-09: was a dead Cloud Run URL (pre-D2; PlugOps moved to
+  # plugfoe). Runtime already overrides this via PLUGOPS_URL env var on every
+  # deployed agent's systemd unit, so this was a masked/latent bug, not an
+  # active one — but relying on every future deploy remembering that env
+  # override is fragile. Fixed at the source so new builds get it right by
+  # default without needing the override at all.
+  url:                   "http://100.67.171.41:9000"
   heartbeat_seconds:     10
   reconnect_max_seconds: 30
   # Rule (Darnie 2026-06-05): agents may NOT serve requests without PlugOps registration.

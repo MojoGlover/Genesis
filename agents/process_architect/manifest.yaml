@@ -1,0 +1,24 @@
+# Process Architect — agent build manifest (consumed by build_agent.py)
+#
+# Systems design, workflow architecture, operational process engineering.
+# Persona-only agent — base template tools (files, shell, web) cover producing
+# specs/diagrams/runbooks as markdown. First real task: spec the Concierge
+# batch-signup + PlugOps approval-checklist system (2026-07-09).
+#
+# Note: config.yaml had an unauthorized cloud provider (anthropic/claude-
+# haiku-4-5) and a dead Cloud Run PlugOps URL — both fixed same session,
+# before this agent ever ran.
+
+id:    process_architect
+name:  ProcessArchitect
+role:  "Systems design, workflow architecture, and operational process engineering"
+port:  5020
+# model omitted → shared models (llama3.2:3b / qwen2.5-coder:7b).
+
+mission: GENESIS/agents/process_architect/missions/PROCESS_ARCHITECT.mission.txt
+
+# No tool_files/packages/knowledge_files — persona-only, base template tools
+# (web_fetch, files, shell) cover producing specs/diagrams/runbooks.
+
+credentials:
+  scopes: []   # design/consulting agent — no privileged access needed
