@@ -134,13 +134,33 @@ class PlugOpsBridge:
             logger.error(f"[bridge] send failed: {e!r}")
 
     async def send_response(self, to_agent: str, content: str, request_id: str = "") -> None:
+        # When a request_id is present, resolve the pending Future on PlugOps
+        # via the dedicated /api/v1/sse/reply endpoint. This is what makes
+        # _proxy_chat's await unblock after we process the message — without
+        # it, chat-proxy callers hang until their own timeout fires even
+        # though the reply was actually produced (found live on Engineer0,
+        # propagated back to the template 2026-07-10).
+        if request_id:
+            try:
+                assert self._client is not None
+                await self._client.post(
+                    f"{self.base_url}/api/v1/sse/reply",
+                    json={
+                        "request_id": request_id,
+                        "content":    content,
+                        "from_agent": self.agent_id,
+                    },
+                )
+                return
+            except Exception as e:
+                logger.warning(f"[bridge] sse/reply failed ({e!r}) — falling back to send()")
+
+        # No request_id or reply endpoint unavailable — send as a regular SSE message
         msg: dict = {
             "from_agent": self.agent_name,
             "to_agent":   to_agent,
             "content":    content,
         }
-        if request_id:
-            msg["request_id"] = request_id
         await self.send({"type": "chat", "message": msg})
 
     # ── internals ─────────────────────────────────────────────────────────
@@ -252,7 +272,14 @@ class PlugOpsBridge:
 
     async def _dispatch(self, msg: dict) -> None:
         msg_type = msg.get("type", "")
-        if msg_type == "message":
+        if msg_type in ("message", "chat"):
+            # Normalize: both "message" and "chat" types go to the callback.
+            # Ensure request_id is surfaced at the top level so the handler can reply.
+            if "request_id" not in msg and isinstance(msg.get("message"), dict):
+                msg["request_id"] = msg["message"].get("request_id", "")
+            if self.on_message_callback is None:
+                logger.warning("[bridge] No callback registered — message dropped")
+                return
             await self.on_message_callback(msg)
         elif msg_type == "learning_package":
             await self._handle_learning_package(msg)
@@ -260,7 +287,6 @@ class PlugOpsBridge:
             logger.debug(f"[bridge] {msg_type} — ok")
         else:
             logger.debug(f"[bridge] unhandled type: {msg_type}")
-            await self.on_message_callback(msg)
 
     async def _handle_learning_package(self, msg: dict) -> None:
         package    = msg.get("package", {})
