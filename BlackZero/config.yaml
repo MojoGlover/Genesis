@@ -62,6 +62,21 @@ models:
   # Speech brain — takes inference output and delivers it to the user cleanly.
   # If empty, respond node skips the speech pass and returns inference output as-is.
   speech:    "llama3.2:3b"               # fast delivery layer
+  # Self-critique judge for the hardening eval loop (agent/modules/hardening_eval.py).
+  # Deliberately the SAME model as `reasoning`, not a second model — plugfoe holds
+  # exactly one Ollama model set resident at a time (7.6GB RAM, no swap).
+  judge:     "qwen2.5-coder:7b"
+
+# Evaluator-Optimizer hardening loop (BOTICO_CANON.md §3 — the third checker,
+# alongside the Operator and doctor.py). Judges each response against 4 axes
+# (instruction/identity/claim/action integrity) after it's already been sent —
+# detection + escalation only, never blocks or retries the response itself.
+hardening:
+  enabled: true
+  # Ground truth for the action_integrity axis — what this agent is allowed to
+  # do without escalating to Darnie first. stamp.py / per-agent config should
+  # override this to match the agent's actual autonomy.loops/capabilities.
+  autonomy_level: "supervised"
 
 # PlugOps bridge config
 plugops:

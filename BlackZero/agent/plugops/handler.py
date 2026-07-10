@@ -36,12 +36,14 @@ class MessageHandler:
         agent_name:      str,
         mission_context: str,
         data_dir:        "Path | None" = None,
+        mods=None,
     ) -> None:
         self.graph           = graph
         self.bridge          = bridge
         self.agent_name      = agent_name
         self.mission_context = mission_context
         self._data_dir       = data_dir or Path("~/.agent").expanduser()
+        self._mods           = mods
 
     async def handle(self, raw_message: dict) -> None:
         # PlugOps wraps messages in two ways:
@@ -104,6 +106,16 @@ class MessageHandler:
             # the reply to the caller. PlugOps fans out to the dashboard itself.
             await self.bridge.send_response(from_agent, response, request_id=request_id)
 
+            # Evaluator-Optimizer hardening check — scheduled AFTER the response
+            # is already sent, so a slow/hung judge call can never add latency
+            # to, or fail, the user-facing reply. Fire-and-forget.
+            self._schedule_hardening_eval(
+                message=content, from_agent=from_agent, response=response,
+                tool_history=result.get("tool_history", []),
+                tools_ran=result.get("tools_ran", 0),
+                session_id=session_id,
+            )
+
         except asyncio.TimeoutError:
             logger.error(
                 f"[handler] Timed out after {HANDLER_TIMEOUT}s processing message from {from_agent}"
@@ -120,3 +132,20 @@ class MessageHandler:
                 f"I encountered an error: {e}",
                 request_id=request_id,
             )
+
+    def _schedule_hardening_eval(self, **kwargs) -> None:
+        """Fire-and-forget: never awaited by the caller, never adds latency to
+        the response, and any internal exception is caught here so it can't
+        surface as an unhandled asyncio Task exception. HardeningEvalClient is
+        sync, so it runs in an executor thread — same pattern as graph.invoke()."""
+        if self._mods is None:
+            return
+
+        async def _run() -> None:
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, lambda: self._mods.hardening.evaluate(**kwargs))
+            except Exception as e:
+                logger.warning(f"[handler] hardening eval task failed: {e!r}")
+
+        asyncio.create_task(_run())

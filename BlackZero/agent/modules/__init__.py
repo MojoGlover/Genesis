@@ -31,6 +31,7 @@ from agent.modules.tool_bus       import ToolBusClient
 from agent.modules.rag            import RAGClient
 from agent.modules.grid           import GridResolver
 from agent.modules.evidence       import EvidenceLedger
+from agent.modules.hardening_eval import HardeningEvalClient
 
 
 @dataclass
@@ -47,6 +48,7 @@ class Modules:
     rag:       RAGClient
     grid:      GridResolver
     evidence:  EvidenceLedger
+    hardening: HardeningEvalClient
 
     def summary(self) -> str:
         enabled = []
@@ -60,6 +62,7 @@ class Modules:
         if self.scheduler.enabled: enabled.append("scheduler")
         if self.tool_bus.enabled:  enabled.append("tool_bus")
         if self.rag.enabled:       enabled.append("rag")
+        if self.hardening.enabled: enabled.append("hardening")
         # grid and evidence are always available — no enabled flag
         return f"enabled=[{', '.join(enabled)}]"
 
@@ -83,26 +86,38 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
     def enabled(name: str, default: bool = True) -> bool:
         return mods_cfg.get(name, {}).get("enabled", default)
 
+    gateway = GatewayClient(agent_id, url("model_gateway", 9109),
+                             model=config.get("model", {}).get("primary", ""),
+                             enabled=enabled("model_gateway"),
+                             fallback_ollama=config.get("tools", {}).get("ollama_api", "") or "http://localhost:11434",
+                             fallback_model=config.get("model", {}).get("fallback", ""),
+                             cloud_fallback_model=config.get("model", {}).get("cloud_fallback", ""),
+                             cloud_provider=config.get("model", {}).get("provider", "ollama"),
+                             cloud_model=config.get("model", {}).get("cloud_model", ""),
+                             # TASK_OLLAMA_URL/MODEL env vars override config — set per-plug
+                             # in systemd EnvironmentFile for portability (RunPod, plugwan, etc.)
+                             task_ollama=(os.environ.get("TASK_OLLAMA_URL")
+                                          or config.get("model", {}).get("task_ollama", "")),
+                             task_model=(os.environ.get("TASK_OLLAMA_MODEL")
+                                         or config.get("model", {}).get("task_model", "")),
+                             model_map=config.get("models", {}))
+
+    hardening_cfg = config.get("hardening", {})
+    hardening = HardeningEvalClient(
+        agent_id       = agent_id,
+        data_dir       = data_dir or Path(f"~/.{agent_id}").expanduser(),
+        gateway        = gateway,
+        plugops_url    = _plugops_url,
+        enabled        = hardening_cfg.get("enabled", True),
+        autonomy_level = hardening_cfg.get("autonomy_level", "supervised"),
+    )
+
     return Modules(
         obs        = ObsClient(agent_id, url("observability", 9108),
                                enabled=enabled("observability")),
         ledger     = LedgerClient(agent_id, url("ledger", 9106),
                                   enabled=enabled("ledger")),
-        gateway    = GatewayClient(agent_id, url("model_gateway", 9109),
-                                   model=config.get("model", {}).get("primary", ""),
-                                   enabled=enabled("model_gateway"),
-                                   fallback_ollama=config.get("tools", {}).get("ollama_api", "") or "http://localhost:11434",
-                                   fallback_model=config.get("model", {}).get("fallback", ""),
-                                   cloud_fallback_model=config.get("model", {}).get("cloud_fallback", ""),
-                                   cloud_provider=config.get("model", {}).get("provider", "ollama"),
-                                   cloud_model=config.get("model", {}).get("cloud_model", ""),
-                                   # TASK_OLLAMA_URL/MODEL env vars override config — set per-plug
-                                   # in systemd EnvironmentFile for portability (RunPod, plugwan, etc.)
-                                   task_ollama=(os.environ.get("TASK_OLLAMA_URL")
-                                                or config.get("model", {}).get("task_ollama", "")),
-                                   task_model=(os.environ.get("TASK_OLLAMA_MODEL")
-                                               or config.get("model", {}).get("task_model", "")),
-                                   model_map=config.get("models", {})),
+        gateway    = gateway,
         policy     = PolicyClient(agent_id, url("policy_gate", 9104),
                                   enabled=enabled("policy_gate")),
         comms      = CommsClient(agent_id, url("communication", 9100),
@@ -121,4 +136,5 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
                                enabled=enabled("rag", True)),
         grid       = GridResolver(plugops_base=_plugops_url),
         evidence   = EvidenceLedger(data_dir or Path(f"~/.{agent_id}").expanduser()),
+        hardening  = hardening,
     )

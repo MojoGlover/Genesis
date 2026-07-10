@@ -176,7 +176,7 @@ async def main() -> None:
 
     handler = MessageHandler(graph=graph, bridge=bridge,
                              agent_name=agent_name, mission_context=system_prompt,
-                             data_dir=data_dir)
+                             data_dir=data_dir, mods=mods)
     bridge.on_message_callback = handler.handle
 
     # ── 8. HTTP API ───────────────────────────────────────────────────────────
