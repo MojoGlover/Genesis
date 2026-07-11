@@ -19,8 +19,11 @@ data/qdrant/
 # Claude Code
 .claude/
 
-# Environment
+# Environment — never commit any dotenv (.env, .env.local, .env.plugfoe, .env.backup, …)
+# Templates (.env.example) are the one exception and stay tracked.
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 
