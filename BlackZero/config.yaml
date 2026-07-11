@@ -101,6 +101,15 @@ plugops:
 
 # Infrastructure module clients (ports 9100–9109)
 # All silent-fail — agent works even if a module is down.
+#
+# DEFERRED 2026-07-11 (audit): the 9100s daemon stack was RETIRED in D1
+# (2026-06-11), but these clients still default enabled:true and call those
+# dead ports. Consequences today: policy.allow() is fail-open so every gate
+# returns True (policy gating is a no-op), and ledger.record_llm() writes cost
+# entries into the void (the Accountant spend-gate has no data path). Decide
+# per client: promote to a PlugOps endpoint (as D1 intends for mind_state /
+# spend) or remove. Until then, treat policy/ledger/obs as non-functional.
+# See memory: project-blackzero-deferred-security.
 modules:
   base_url: "http://127.0.0.1"
 

@@ -4,7 +4,7 @@ name: PlugToo (Tablet)
 status: active
 lifecycle: active
 description: Teclast Android tablet. MadJanet's primary device. Small models only. Opportunistic — not always-on.
-tailscale_ref: env.PLUGTREE_TAILSCALE  # 100.103.47.83
+tailscale_ref: env.PLUGTOO_TAILSCALE  # Teclast tablet — NOT PLUGTREE (that's the iPhone). Unset until enrolled → router skips (correct: opportunistic node).
 capabilities:
   - inference: llama3.2:3b (small/fast, mobile inference)
   - app: MadJanet tablet app (React Native / Expo, Plug2)

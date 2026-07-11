@@ -76,7 +76,7 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
     _plugops_url = (
         config.get("plugops", {}).get("url")
         or mods_cfg.get("plugops_url")
-        or "https://plugzero-581737577470.us-central1.run.app"
+        or ""   # was a dead Cloud Run URL (deleted 2026-06-11); empty = disabled
     )
 
     def url(name: str, default_port: int) -> str:
@@ -126,7 +126,7 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
                                     enabled=enabled("registry")),
         mind_state = MindStateClient(agent_id, url("mind_state", 9102),
                                      enabled=enabled("mind_state"),
-                                     plugops_url=mods_cfg.get("plugops_url", "")),
+                                     plugops_url=_plugops_url),
         scheduler  = SchedulerClient(agent_id, url("scheduler", 9107),
                                      enabled=enabled("scheduler", False)),
         tool_bus   = ToolBusClient(agent_id, url("tool_bus", 9105),

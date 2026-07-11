@@ -117,6 +117,13 @@ async def execute_tool(req: ToolRequest, x_agent_id: str = Header(default="")):
     Request:  {"tool": "ledger_stats", "params": {}}
     Response: {"result": "...", "ok": true, "tool": "ledger_stats"}
     """
+    # DEFERRED 2026-07-11 (audit): this is effectively unauthenticated remote
+    # tool execution. Any non-empty X-Agent-Id passes, the server binds 0.0.0.0,
+    # the dispatched set includes `shell`, and it calls build_executor() directly
+    # — bypassing LocalToolBus (no policy/quarantine/evidence). Needs, as a unit:
+    # (1) a shared secret validated against PlugOps/Cerberus, (2) routing through
+    # LocalToolBus, (3) bind to the Tailscale interface. Design decision pending
+    # Darnie. See memory: project-blackzero-deferred-security.
     if not x_agent_id:
         raise HTTPException(status_code=401, detail="X-Agent-Id header required")
 

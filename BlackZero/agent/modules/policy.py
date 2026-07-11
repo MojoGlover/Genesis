@@ -17,6 +17,12 @@ class PolicyClient:
         """
         Returns True if allowed, False if denied.
         Silent-fail = allow (policy gate being down never blocks the agent).
+
+        DEFERRED 2026-07-11 (audit): the port-9104 policy daemon was retired in
+        D1, so this ALWAYS fails open — every action is allowed. The constitution's
+        "policy-gated action" is currently enforced only by shell.py's destructive-
+        pattern list. Re-home as a PlugOps endpoint before relying on policy gating.
+        See memory: project-blackzero-deferred-security.
         """
         if not self.enabled:
             return True

@@ -17,7 +17,7 @@ risk_level: none
 locality:
   - plugfoe
   - plugwan
-  - tablet
+  - plugtoo   # was "tablet" — satellite router looks up satellite.plugtoo, not satellite.tablet
 policy:
   allow_private_context: false   # too small to be trusted with sensitive context
   allow_external_calls: false

@@ -536,11 +536,11 @@ OLLAMA_TOOL_DEFS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "path":      {"type": "string", "description": "Root path to search"},
                     "pattern":   {"type": "string", "description": "Search pattern (regex supported)"},
-                    "directory": {"type": "string", "description": "Directory to search"},
-                    "extension": {"type": "string", "description": "File extension filter (e.g. .py)"},
+                    "file_glob": {"type": "string", "description": "File filter, e.g. *.py (default: *.py)"},
                 },
-                "required": ["pattern", "directory"],
+                "required": ["path", "pattern"],
             },
         },
     },
@@ -759,8 +759,17 @@ def build_executor() -> Callable[[str, dict], str]:
                 return str(_CUSTOM_EXECUTORS[tool_name](**params))
 
             else:
-                _flag_missing_tool(tool_name, agent_id=os.environ.get("AGENT_ID", "blackzero"), priority=1)
-                return f"Unknown tool: '{tool_name}'. This gap has been flagged to EngineerV for immediate resolution."
+                requesting = os.environ.get("AGENT_ID", "blackzero")
+                logger.warning(f"[registry] Unknown tool '{tool_name}' requested by {requesting}")
+                available = ", ".join(sorted(t["name"] for t in TOOL_SCHEMAS))
+                # Honest failure — do NOT claim it was "flagged for resolution".
+                # (The old handler wrote a task into ~/.engineerv/tasks.db, an
+                # agent that does not exist, and injected a false completion
+                # claim into the model's reasoning loop.)
+                return (
+                    f"Unknown tool: '{tool_name}'. It does not exist in this agent's "
+                    f"registry, so nothing was executed. Available tools: {available}"
+                )
 
         except TypeError as e:
             return f"Tool '{tool_name}' called with wrong params: {e}"
@@ -769,74 +778,6 @@ def build_executor() -> Callable[[str, dict], str]:
             return f"Tool error: {e}"
 
     return execute
-
-
-def _flag_missing_tool(tool_name: str, agent_id: str, priority: int) -> None:
-    """
-    Flag a missing tool to EngineerV's task queue.
-    Priority 1 (CRITICAL) agents get immediate high-priority task.
-    Priority 2+ agents get a standard queued task.
-    """
-    try:
-        import urllib.request
-        import json as _json
-        from pathlib import Path
-
-        # EngineerV task queue lives in her data dir
-        engineerv_data = Path.home() / ".engineerv"
-        engineerv_data.mkdir(parents=True, exist_ok=True)
-
-        # Write directly to EngineerV's task DB
-        import sqlite3, time, uuid
-        db_path = engineerv_data / "tasks.db"
-        conn = sqlite3.connect(str(db_path))
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id TEXT UNIQUE NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                priority INTEGER DEFAULT 5,
-                status TEXT DEFAULT 'open',
-                source TEXT DEFAULT 'system',
-                created_at TEXT NOT NULL,
-                started_at TEXT,
-                completed_at TEXT,
-                result TEXT,
-                error TEXT
-            )
-        """)
-        task_priority = 10 if priority == 1 else 7  # CRITICAL gets highest queue priority
-        task_id = str(uuid.uuid4())[:8]
-        conn.execute(
-            """INSERT OR IGNORE INTO tasks
-               (task_id, title, description, priority, status, source, created_at)
-               VALUES (?, ?, ?, ?, 'open', ?, ?)""",
-            (
-                task_id,
-                f"[{agent_id.upper()}] Missing tool: {tool_name}",
-                f"Agent '{agent_id}' (priority {priority}) attempted to call tool "
-                f"'{tool_name}' which does not exist in its registry.\n\n"
-                f"Action required:\n"
-                f"1. Research and build '{tool_name}' tool\n"
-                f"2. Register it in agent/tools/registry.py\n"
-                f"3. Queue EngineerX to test it against {agent_id}\n"
-                f"4. Signal {agent_id} to reload tool registry\n\n"
-                f"This is a priority-{priority} agent. {'Resolve immediately.' if priority == 1 else 'Resolve promptly.'}",
-                task_priority,
-                "tool_error_handler",
-                time.strftime("%Y-%m-%dT%H:%M:%S"),
-            ),
-        )
-        conn.commit()
-        conn.close()
-        logger.warning(
-            f"[gap_flag] Missing tool '{tool_name}' on {agent_id} (priority {priority}) "
-            f"→ queued to EngineerV as task {task_id}"
-        )
-
-    except Exception as e:
-        logger.error(f"[gap_flag] Failed to flag missing tool '{tool_name}': {e}")
 
 
 def parse_tool_call(text: str) -> dict | None:

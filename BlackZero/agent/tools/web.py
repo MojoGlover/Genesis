@@ -87,16 +87,21 @@ def search(query: str, num_results: int = 5) -> dict:
 
 
 def api_call(url: str, method: str = "GET", headers: dict | None = None,
-             body: dict | str | None = None, timeout: int = DEFAULT_TIMEOUT) -> dict:
-    """Make an HTTP API call. Supports GET and POST."""
+             payload: dict | str | None = None, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    """Make an HTTP API call. Supports GET and POST.
+
+    The request-body param is named `payload` to match the tool schema and
+    TOOL_DOCS (registry.py). A previous mismatch (`body` here vs `payload` in
+    the schema) made every POST/PUT with a body raise TypeError before sending.
+    """
     logger.info(f"[web] {method} {url}")
     try:
         data = None
-        if body:
-            if isinstance(body, dict):
-                data = json.dumps(body).encode()
+        if payload:
+            if isinstance(payload, dict):
+                data = json.dumps(payload).encode()
             else:
-                data = body.encode()
+                data = payload.encode()
 
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("User-Agent", "ComputerBlack-Agent/1.0")
