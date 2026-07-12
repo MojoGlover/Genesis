@@ -201,10 +201,15 @@ class GatewayClient:
                 logger.warning(f"[gateway] unreachable ({e}) — trying Ollama fallback")
 
         # ── 3. Direct Ollama ──────────────────────────────────────────────────
-        if self.fallback_ollama and self.fallback_model:
-            logger.warning(f"[gateway] Direct Ollama fallback ({self.fallback_model})")
+        # Pass model_id through (resolved above from model_id_override or
+        # self.model) so the caller's actual per-task/persona model is used
+        # here too, not just on the (currently unreachable) gateway path.
+        if self.fallback_ollama and (model_id or self.fallback_model):
+            fallback_target = model_id or self.fallback_model
+            logger.warning(f"[gateway] Direct Ollama fallback ({fallback_target})")
             try:
-                return self._ollama_chat(messages, max_tokens, timeout, tools=tools)
+                return self._ollama_chat(messages, max_tokens, timeout, tools=tools,
+                                         model=fallback_target)
             except GatewayError as e:
                 logger.warning(f"[gateway] Ollama failed: {e} — trying cloud fallback")
 
@@ -411,12 +416,24 @@ class GatewayClient:
 
     def _ollama_chat(self, messages: list[dict], max_tokens: int,
                      timeout: float, tools: list[dict] | None = None,
-                     num_ctx: int = 4096) -> dict:
-        """Direct Ollama fallback. num_ctx capped at 4096 for local model on plugfoe."""
+                     num_ctx: int = 4096, model: str = "") -> dict:
+        """Direct Ollama fallback. num_ctx capped at 4096 for local model on plugfoe.
+
+        `model` defaults to self.fallback_model but should be passed the
+        resolved model_id from chat() whenever one is known. Without this,
+        every per-task-type model (config `models:` — chat/reasoning/fast/
+        code/speech) and every custom persona model (stamp.py --model) was
+        silently ignored on this path: model_gateway (port 9109) is retired
+        fleet-wide (D1, 2026-06-11), so this fallback is now the ONLY path
+        every agent's chat calls ever take, and it was always using the one
+        static model.fallback value regardless of which model the caller
+        actually asked for. Found 2026-07-11 testing Goldberg's persona model.
+        """
         t0 = time.time()
+        resolved_model = model or self.fallback_model
         try:
             body: dict = {
-                "model":      self.fallback_model,
+                "model":      resolved_model,
                 "messages":   messages,
                 "options":    {"num_predict": max_tokens, "num_ctx": num_ctx},
                 "stream":     False,
@@ -457,7 +474,7 @@ class GatewayClient:
                                                 "arguments": parsed.get("params", {})}}]
             return {
                 "ok":            True,
-                "model_id":      self.fallback_model,
+                "model_id":      resolved_model,
                 "backend":       "ollama-direct",
                 "content":       content,
                 "tool_calls":    tool_calls,

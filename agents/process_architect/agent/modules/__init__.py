@@ -77,13 +77,24 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
                                   enabled=enabled("ledger")),
         gateway    = GatewayClient(agent_id, url("model_gateway", 9109),
                                    model=config.get("model", {}).get("primary", ""),
-                                   enabled=enabled("model_gateway")),
+                                   enabled=enabled("model_gateway"),
+                                   # Previously omitted entirely — fallback_ollama
+                                   # defaulted to "" (fallback path could never
+                                   # activate) and model_map defaulted to {} (every
+                                   # task_type silently used model.primary, never
+                                   # the differentiated models.chat/fast/etc values).
+                                   fallback_ollama=config.get("tools", {}).get("ollama_api", "") or "http://localhost:11434",
+                                   model_map=config.get("models", {})),
         policy     = PolicyClient(agent_id, url("policy_gate", 9104),
                                   enabled=enabled("policy_gate")),
         comms      = CommsClient(agent_id, url("communication", 9100),
                                  enabled=enabled("communication")),
         registry   = RegistryClient(agent_id, url("registry", 9101),
                                     enabled=enabled("registry")),
+        # NOTE: her MindStateClient predates the plugops_url cross-host
+        # snapshot feature entirely (constructor doesn't accept it) — passing
+        # it would TypeError at boot. Not the same bug as the other agents;
+        # nothing to fix here without a larger mind_state.py upgrade.
         mind_state = MindStateClient(agent_id, url("mind_state", 9102),
                                      enabled=enabled("mind_state")),
         scheduler  = SchedulerClient(agent_id, url("scheduler", 9107),

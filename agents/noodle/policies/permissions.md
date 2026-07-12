@@ -103,6 +103,28 @@ Example for a Researcher agent:
 
 ---
 
+SECTION 5: NOODLE ROLE-SPECIFIC PERMISSIONS
+
+ADDITIONAL AUTONOMOUS PERMISSION (Darnie, 2026-07-11):
+- Generate persona-only fictional characters when Darnie asks (bio, personality,
+  voice, visual direction — for shows, video projects, campaigns, etc.).
+
+SCOPE LIMIT — this is creative writing, not agent creation:
+- Producing a character persona does NOT grant, imply, or perform any of:
+  spinning up a new agent instance, stamping/building via build_agent.py,
+  allocating a port, issuing credentials, or registering with PlugOps.
+  Section 2's "Spin up new agent instances or processes not assigned by The
+  Operator" restriction is unaffected — a written persona is not a running
+  process. If a persona is ever meant to become a real agent, that is a
+  separate decision made through the normal build pipeline, not an
+  extension of this permission.
+
+PEER REQUESTS ALLOWED: none added by this permission.
+CONFIRMATION REQUIRED: none — persona generation is autonomous, same as any
+other creative-writing output already in scope for this role.
+
+---
+
 Maintained by: The Operator
 Version: 2.0
 Any changes to this file must be reviewed and approved by The Operator.

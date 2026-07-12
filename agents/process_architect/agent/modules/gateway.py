@@ -81,27 +81,32 @@ class GatewayClient:
             except Exception as e:
                 logger.warning(f"[gateway] unreachable ({e}) — trying fallback")
 
-        # Fallback: direct Ollama using self.model (the Ollama model name).
-        # model_id_override is a gateway model_id (e.g. "phi4-14b") — we can't
-        # resolve it to an Ollama name without the gateway, so we fall back to
-        # the primary model instead of crashing. This is always better than a
-        # hard GatewayError when Ollama is reachable.
-        if self.fallback_ollama and self.model:
-            logger.warning(
-                f"[gateway] Falling back to direct Ollama ({self.model})"
-                + (f" instead of {model_id_override}" if model_id_override else "")
-            )
-            return self._ollama_fallback(messages, max_tokens, timeout, tools=tools)
+        # Fallback: direct Ollama. Previously this always used self.model
+        # (config.model.primary) regardless of task_type, on the reasoning
+        # that model_id_override might be an unresolvable gateway-only id —
+        # but per-task models (config `models:` — chat/reasoning/fast/code)
+        # ARE real Ollama model names here (e.g. "llama3.2:3b"), not
+        # gateway-only ids, so silently discarding them meant every task
+        # type ran on model.primary whenever the gateway was unreachable.
+        # Use model_id (already resolved above) when we have one; only fall
+        # back to self.model as a last resort. Fixed 2026-07-11.
+        fallback_target = model_id or self.model
+        if self.fallback_ollama and fallback_target:
+            logger.warning(f"[gateway] Falling back to direct Ollama ({fallback_target})")
+            return self._ollama_fallback(messages, max_tokens, timeout, tools=tools,
+                                         model=fallback_target)
 
         raise GatewayError("model_gateway unavailable and no fallback configured")
 
     def _ollama_fallback(self, messages: list[dict], max_tokens: int,
-                         timeout: float, tools: list[dict] | None = None) -> dict:
+                         timeout: float, tools: list[dict] | None = None,
+                         model: str = "") -> dict:
         import time
         t0 = time.time()
+        resolved_model = model or self.model
         try:
             body: dict = {
-                "model":   self.model,
+                "model":   resolved_model,
                 "messages": messages,
                 "options": {"num_predict": max_tokens},
                 "stream":  False,
@@ -126,7 +131,7 @@ class GatewayClient:
 
             return {
                 "ok":           True,
-                "model_id":     self.model,
+                "model_id":     resolved_model,
                 "backend":      "ollama-direct",
                 "content":      content,
                 "tool_calls":   tool_calls,   # None when prose, list when tool invoked

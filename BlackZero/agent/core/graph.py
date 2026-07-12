@@ -431,7 +431,16 @@ def make_think_node(mods: "Modules", system_prompt: str):
             for entry in tool_history:
                 if entry["role"] == "tool_result":
                     summary += f"\n- {entry['content'][:1000]}"
-            return {**state, "response": summary, "tool_call_pending": False}
+            # force_rethink MUST be cleared here. If it was True on entry (set by
+            # a prior grounding-correction/malformed-call/fabrication iteration),
+            # should_continue() would route straight back to "think" — which
+            # re-hits this same iterations>=max_iter branch immediately, forever,
+            # since neither iterations nor force_rethink change. That infinite
+            # loop only stops at LangGraph's hard recursion_limit (100), surfacing
+            # as a raw GRAPH_RECURSION_LIMIT error instead of this FAILED summary.
+            # Found 2026-07-11 testing Goldberg's rebuilt custom tools.
+            return {**state, "response": summary, "tool_call_pending": False,
+                    "force_rethink": False}
 
         # ── Cooperative deadline check ──────────────────────────────────────────
         # /api/chat sets `_deadline` (a time.monotonic() cutoff) before invoking

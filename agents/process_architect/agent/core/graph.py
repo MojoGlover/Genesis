@@ -310,7 +310,13 @@ def make_think_node(mods: "Modules", system_prompt: str):
             for entry in tool_history:
                 if entry["role"] == "tool_result":
                     summary += f"\n- {entry['content'][:200]}"
-            return {**state, "response": summary, "tool_call_pending": False}
+            # force_rethink MUST be cleared here — if it was True on entry,
+            # should_continue() would route straight back to "think" and re-hit
+            # this same branch forever (neither iterations nor force_rethink
+            # change), stopping only at LangGraph's hard recursion_limit with a
+            # raw error instead of this summary. Fixed 2026-07-11.
+            return {**state, "response": summary, "tool_call_pending": False,
+                    "force_rethink": False}
 
         # Anti-hallucination rules + tool docs injected into every system prompt
         system = f"{system_prompt}\n\n{ANTI_HALLUCINATION_RULES}\n\n{TOOL_DOCS}"

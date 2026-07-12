@@ -62,8 +62,12 @@ async def main() -> None:
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    agent_id   = os.environ.get("AGENT_ID") or config["identity"]["id"]
-    agent_name = config["identity"]["name"]
+    ident = config["identity"]
+    # Falls back through her actual config's keys (alias/designation) instead
+    # of requiring identity.id/identity.name, which her config.yaml doesn't
+    # have — this KeyError'd on every boot before. Fixed 2026-07-11.
+    agent_id   = os.environ.get("AGENT_ID") or ident.get("id") or ident.get("alias") or ident.get("designation")
+    agent_name = ident.get("name") or ident.get("designation") or agent_id
     data_dir   = Path(config.get("data_dir", f"~/.{agent_id}")).expanduser()
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -114,20 +118,35 @@ async def main() -> None:
     graph = build_graph(config, system_prompt, data_dir, mods)
     logger.info("[graph] Ready — recall → think ⇄ tool → respond")
 
-    # ── 6. Bootstrap mission check ────────────────────────────────────────────
-    # model_ready = True means the LLM gateway responded during bootstrap.
-    # /health returns "starting" until this is confirmed.
+    # ── 6. Model readiness probe ──────────────────────────────────────────────
+    # Was a one-shot call to MissionLoader.bootstrap_check_via_gateway(), a
+    # method that does not exist on MissionLoader — every boot AttributeError'd,
+    # caught by the except below, and model_ready stayed False forever. Since
+    # nothing ever retried, /health could never report "ok", only "starting" —
+    # permanently, not just during startup. Replaced with a background retry
+    # loop (same pattern as the current BlackZero template) so a slow-starting
+    # or momentarily unreachable model doesn't wedge readiness forever.
+    # Fixed 2026-07-11.
     model_ready = False
-    try:
-        verified = loader.bootstrap_check_via_gateway(mods.gateway, system_prompt, agent_name)
-        loader.save_bootstrap_result(data_dir, verified, agent_name)
-        model_ready = True
-        if verified:
-            logger.info("[bootstrap] PASS — mission acknowledged")
-        else:
-            logger.warning("[bootstrap] WARN — unexpected response (continuing)")
-    except Exception as e:
-        logger.warning(f"[bootstrap] Skipped — gateway not ready: {e}")
+
+    async def _probe_model() -> None:
+        from agent.api.server import set_ready
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: mods.gateway.chat_for(
+                        [{"role": "user", "content": "ping"}],
+                        task_type="fast", max_tokens=8, timeout=30.0,
+                    ),
+                )
+                if result.get("content") is not None:
+                    set_ready()
+                    return
+            except Exception as e:
+                logger.warning(f"[boot] Model probe failed: {e!r} — retrying in 30s")
+            await asyncio.sleep(30)
 
     # ── 7. PlugOps bridge ─────────────────────────────────────────────────────
     from agent.plugops.bridge import PlugOpsBridge
@@ -180,6 +199,7 @@ async def main() -> None:
             api_server.serve(),
             _supervised("bridge",   bridge.connect()),
             _supervised("registry", mods.registry.heartbeat_loop(agent_id)),
+            _supervised("model-probe", _probe_model()),
             *[_supervised(f"loop-{i}", loop) for i, loop in enumerate(loops)],
         )
     finally:

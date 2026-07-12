@@ -29,11 +29,30 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Registry path — lives in Zee's data dir
-_REGISTRY_PATH = Path(
-    os.environ.get("AGENT_DATA_DIR", str(Path.home() / ".zero"))
-) / "helpers.json"
+# Registry path — lives in THIS agent's own data dir.
+# Must be per-agent: a shared path (the old ~/.zero default) let every stamped
+# agent read, overwrite, and revoke each other's API-helper slots.
+def _agent_data_dir() -> Path:
+    agent_root = Path(__file__).resolve().parents[2]
+    agent_id = os.environ.get("AGENT_ID", "")
+    data_dir = ""
+    try:
+        cfg_path = agent_root / "config.yaml"
+        if cfg_path.exists():
+            import yaml
+            with open(cfg_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            ident = cfg.get("identity", {})
+            agent_id = agent_id or ident.get("id") or ident.get("alias") or ident.get("designation", "")
+            data_dir = cfg.get("data_dir", "")
+    except Exception:
+        pass
+    if not data_dir:
+        data_dir = f"~/.{agent_id or 'agent'}"
+    return Path(data_dir).expanduser()
 
+
+_REGISTRY_PATH = _agent_data_dir() / "helpers.json"
 _REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
