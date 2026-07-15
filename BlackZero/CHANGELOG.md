@@ -6,6 +6,35 @@ agent's `config.yaml` under `template:` — so any agent's drift from the
 current template is a diff between its own `VERSION`/`config.yaml` and this
 file, not a guess.
 
+## 1.3.0 — 2026-07-15
+
+Fabrication detection closed two gaps, both confirmed live in production
+within the same hour, on two different agents:
+
+- `_detect_fabrication` already caught fake write/run/read-file claims but
+  had zero coverage for claims about searching/fetching live external
+  info. Confirmed live: a deployed agent's `web_search` call failed with
+  an SSL error and the model answered with a fabricated, years-stale
+  result instead of relaying the failure. Added a pattern set grounded on
+  `web_search`/`web_fetch`/`api_call` actually succeeding.
+- That fix only covered the shared template's own base tool names. A
+  second agent, minutes later, claimed to use a tool called
+  "chronicle_status" — which doesn't exist; the real tool is
+  "chronicle_stats" — and reported a fabricated 2^31 entry count instead
+  of the real count. Added a general check: any explicitly-named tool
+  claim ("I used my `<name>` tool") is flagged as fabrication if zero
+  tools actually succeeded this turn — not matched by exact name, so a
+  real success under a slightly-misremembered name isn't false-flagged.
+
+Both verified against their exact failure scenarios plus false-positive
+cases (legitimate tool use, advisory suggestions, plain conversation).
+
+Root cause of why these went unnoticed for a month: `grid_watchdog.py` (the
+grid's compliance checker) never checked template version drift or
+hardening presence at all, and only ever checked 6 of 22 built agents for
+anything. Both fixed same day — see `grid_watchdog.py` R11/R12 and its
+expanded `AGENT_CONFIGS` list.
+
 ## 1.2.0 — 2026-07-15
 
 Memory (RAG) made genuinely opt-in, not just gracefully-degrading.
