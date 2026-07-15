@@ -344,6 +344,33 @@ def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
                 "Output a tool call JSON block now."
             )
 
+    # Claimed to have searched/fetched live external information but no
+    # web_search/web_fetch/api_call tool succeeded. Added 2026-07-15 —
+    # confirmed live: a deployed agent's web_search call failed with an SSL
+    # error, and the model answered with a fabricated, years-stale result
+    # instead of relaying the failure. The write/run/read claim checks above
+    # didn't cover this class at all — a genuine gap in every prior build.
+    search_claim_patterns = (
+        "i used the web search", "i used the search", "i searched for",
+        "i looked up", "i looked this up", "the search returned",
+        "search results show", "according to my search", "based on my search",
+        "i checked online", "i fetched", "according to the website",
+        "the website shows", "the page shows",
+    )
+    search_grounding = {"web_search", "web_fetch", "api_call"}
+    if any(p in lowered for p in search_claim_patterns):
+        if not called.intersection(search_grounding):
+            return (
+                "FABRICATION DETECTED. You claimed to have searched or fetched live "
+                "external information, but no web_search, web_fetch, or api_call tool "
+                "succeeded. You MUST call web_search or web_fetch and report what it "
+                "actually returned — including reporting an error honestly if the tool "
+                "call failed. Never substitute a remembered or invented answer for a "
+                "failed or unmade tool call. Output a tool call JSON block now, or if "
+                "the tool already failed, tell the user it failed rather than answering "
+                "as if it succeeded."
+            )
+
     return None
 
 
