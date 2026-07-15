@@ -1,0 +1,7 @@
+# BlackZero — optional memory (RAG) dependencies.
+# Appended into a stamped agent's requirements.txt by stamp.py only when
+# `--memory` (or manifest `memory: true` via build_agent.py) is set.
+# Not installed by default — see requirements.txt for why.
+
+chromadb>=0.4.0,<1.0
+sentence-transformers>=2.2.0,<3.0

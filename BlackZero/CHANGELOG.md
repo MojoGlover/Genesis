@@ -6,6 +6,37 @@ agent's `config.yaml` under `template:` — so any agent's drift from the
 current template is a diff between its own `VERSION`/`config.yaml` and this
 file, not a guess.
 
+## 1.2.0 — 2026-07-15
+
+Memory (RAG) made genuinely opt-in, not just gracefully-degrading.
+
+Root cause: `requirements.txt` installed `chromadb` + `sentence-transformers`
+(torch-class, slow) unconditionally for every stamped agent, and
+`agent/modules/__init__.py`'s `enabled("rag", True)` defaulted the module on
+in the absence of a `modules.rag` config key — so even agents that never use
+semantic recall (e.g. Chronicle, almost entirely deterministic tooling) paid
+the install cost on every build. `agent/modules/rag.py` already degraded
+cleanly at runtime if Chroma was disabled or failed to init; the dependency
+install was the part that wasn't actually optional.
+
+Changes:
+- `requirements.txt` — removed `chromadb`/`sentence-transformers`.
+- `requirements-memory.txt` (new) — those two lines. Spliced into a stamped
+  agent's `requirements.txt` only when requested.
+- `config.yaml` — added explicit `modules.rag.enabled: false`, flipping the
+  template default from implicit-on to opt-in (matches the `autonomy.loops`
+  philosophy already in this template).
+- `stamp.py` — new `memory: bool = False` param: appends
+  `requirements-memory.txt` into the stamped `requirements.txt` and sets
+  `modules.rag.enabled: true` in the stamped `config.yaml` when true. New
+  `--memory` CLI flag.
+- `build_agent.py` — manifest gains an optional `memory: bool` field, threaded
+  into `stamp()`; `verify()` asserts the splice actually happened when
+  `memory: true` was requested.
+
+Only affects future stamps — each agent's `config.yaml`/`requirements.txt`
+are frozen copies from stamp time, so already-deployed agents are unaffected.
+
 ## 1.1.0 — 2026-07-14
 
 Origin/provenance hardening, from the Engineer0 hallucination-and-spoofing

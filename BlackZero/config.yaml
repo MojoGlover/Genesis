@@ -148,6 +148,14 @@ modules:
     port:    9107
     enabled: false
 
+  # Semantic memory (ChromaDB) — opt-in (2026-07-15). Off by default: most
+  # agents don't need semantic recall, and chromadb/sentence-transformers are
+  # a slow, torch-class install every stamp was paying for regardless. Set to
+  # true via stamp.py --memory (or manifest `memory: true`), which also
+  # splices requirements-memory.txt into this agent's requirements.txt.
+  rag:
+    enabled: false
+
   observability:
     port:    9108
     enabled: true

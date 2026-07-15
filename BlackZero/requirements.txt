@@ -18,9 +18,10 @@ langchain-ollama>=0.1.0,<1.0
 # MCP
 mcp>=1.0.0,<2.0
 
-# RAG / Memory
-chromadb>=0.4.0,<1.0
-sentence-transformers>=2.2.0,<3.0
+# RAG / Memory — moved to requirements-memory.txt (2026-07-15). Installed only
+# when a manifest sets `memory: true` (stamp.py --memory) — see
+# agent/modules/rag.py, config.yaml's modules.rag.enabled. Most agents don't
+# use semantic recall and were paying a slow torch-class install for nothing.
 
 # PlugOps connection (plugops_bridge uses SSE + HTTP since 2026-05-04)
 httpx-sse>=0.4,<1.0
