@@ -63,9 +63,20 @@ class MindStateClient:
         """Return recent conversation turns for context injection. Never raises."""
         return self._local_get(session_id, limit)
 
-    def save(self, session_id: str, human: str, assistant: str) -> None:
-        """Persist a human/assistant exchange to local SQLite. Never raises."""
-        self._local_save(session_id, human, assistant)
+    def save(self, session_id: str, human: str, assistant: str,
+             from_agent: str = "unverified") -> None:
+        """Persist a human/assistant exchange to local SQLite. Never raises.
+
+        from_agent is the turn's real provenance (see agent/core/graph.py's
+        recall/respond nodes and local_tool_bus.py TRUSTED_ORIGINS). Audit
+        finding 2026-07-14: this used to hardcode the stored role as "human"
+        for every turn regardless of actual origin — autonomous task_loop/
+        todo_loop runs, capability self-tests, and other agents' messages
+        were all persisted and later recalled as if a human said them,
+        compounding the confusion turn after turn. Now the stored role
+        reflects the real origin; only from_agent == "user" is labeled
+        "human"."""
+        self._local_save(session_id, human, assistant, from_agent)
 
     # ── Full state snapshots — module server ──────────────────────────────────
 
@@ -218,7 +229,15 @@ class MindStateClient:
             logger.error(f"[mind_state] get_recent failed for session={session_id!r}: {e!r}")
             return []
 
-    def _local_save(self, session_id: str, human: str, assistant: str) -> None:
+    def _local_save(self, session_id: str, human: str, assistant: str,
+                     from_agent: str = "unverified") -> None:
+        # Stored role reflects real provenance instead of a hardcoded "human"
+        # (audit 2026-07-14 — see save() docstring above). Only the
+        # authenticated human-chat origin is labeled "human"; everything else
+        # is tagged with its actual origin string so get_recent()'s recalled
+        # context ("role: content") lets both the model and any downstream
+        # consumer (task_loop, RAG) see what really produced each turn.
+        role = "human" if from_agent == "user" else f"origin:{from_agent}"
         try:
             conn, lock = self._db()
             if not conn:
@@ -227,7 +246,7 @@ class MindStateClient:
             with lock:
                 conn.execute(
                     "INSERT INTO conversations (session_id,role,content,ts) VALUES (?,?,?,?)",
-                    (session_id, "human", human, ts),
+                    (session_id, role, human, ts),
                 )
                 conn.execute(
                     "INSERT INTO conversations (session_id,role,content,ts) VALUES (?,?,?,?)",

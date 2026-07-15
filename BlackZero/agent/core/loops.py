@@ -102,6 +102,16 @@ async def task_loop(graph, data_dir: Path, interval: int = 30,
                                 "message":        prompt,
                                 "session_id":     f"task-{task_id}",
                                 "max_iterations": 20,
+                                # Explicit origin — never rely on the graph's
+                                # fail-closed default. This is autonomous queued
+                                # work, not a live chat turn from Darnie; it must
+                                # be recorded and gated as such. Trusted for
+                                # tool use (task_loop is one of the origins the
+                                # agent is scoped to act autonomously for — see
+                                # local_tool_bus.py TRUSTED_ORIGINS) but never
+                                # mistakeable for a real-time human instruction.
+                                "from_agent":     "loop:task_loop",
+                                "tool_required":  True,
                             },
                             config={"configurable": {"thread_id": f"task-{task_id}"}, "recursion_limit": 100},
                         ),
@@ -324,7 +334,22 @@ async def todo_loop(
                     state  = await loop_.run_in_executor(
                         None,
                         lambda: graph.invoke(
-                            {"message": prompt, "session_id": f"todo-{item_idx}", "max_iterations": 30},
+                            {
+                                "message":        prompt,
+                                "session_id":     f"todo-{item_idx}",
+                                "max_iterations": 30,
+                                # Explicit origin/flag — do not rely on the
+                                # "EXECUTE THIS TASK NOW" prefix for tool-use
+                                # enforcement (that was a string in the prompt
+                                # text itself, readable and gameable by the
+                                # model; audit 2026-07-14). tool_required is
+                                # now a first-class state flag the recall node
+                                # honors directly. from_agent marks this as
+                                # autonomous sandbox work, never a live chat
+                                # turn from Darnie.
+                                "from_agent":     "loop:todo_loop",
+                                "tool_required":  True,
+                            },
                             config={"configurable": {"thread_id": f"todo-{item_idx}"}, "recursion_limit": 150},
                         ),
                     )

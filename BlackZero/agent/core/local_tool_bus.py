@@ -43,6 +43,35 @@ logger = logging.getLogger(__name__)
 # Result strings longer than this are truncated before the LLM sees them.
 _MAX_RESULT_LEN = 8000
 
+# ── Origin-based execution gate ─────────────────────────────────────────────
+# Audit finding 2026-07-14 (Engineer0 hallucination/spoofing audit): tool
+# execution had NO concept of who/what asked for it — the policy check below
+# (step 3) only ever looked at the tool name, never the caller. Combined with
+# `from_agent` defaulting to "user" everywhere upstream, anything that could
+# reach the chat endpoint (including another agent, or an automated test
+# harness) got full tool authority indistinguishable from a real instruction
+# from Darnie.
+#
+# TRUSTED_ORIGINS are the only `from_agent`/origin values allowed to invoke a
+# HIGH_RISK_TOOL. This is NOT the same question as "is this a real human" —
+# task_loop and todo_loop are legitimate autonomous work Engineer0 is scoped
+# to do without per-action confirmation (config.yaml autonomy_level). What's
+# excluded is everything else: unverified/omitted origin, and raw agent-to-
+# agent chat turns that never went through the reviewed task queue.
+TRUSTED_ORIGINS = frozenset({"user", "loop:task_loop", "loop:todo_loop"})
+
+# Tools whose side effects are hard or impossible to undo, or that reach
+# outside this agent's own sandbox (git history, the filesystem, a shell,
+# a physical device, credential grants). Extend this set in the template,
+# not per-agent, if a new tool with real side effects is added.
+HIGH_RISK_TOOLS = frozenset({
+    "shell", "python",
+    "write_file", "patch_file",
+    "git_add", "git_commit", "git_push",
+    "adb",
+    "assign_api", "revoke_api",
+})
+
 
 class LocalToolBus:
     """
@@ -75,9 +104,14 @@ class LocalToolBus:
         params:     dict,
         session_id: str = "",
         mode:       str = "act",
+        origin:     str = "unverified",
     ) -> tuple[str, NormalizedResult]:
         """
         Execute a tool call end-to-end.
+
+        origin is the caller's `from_agent`/provenance value (see graph.py's
+        recall node and TRUSTED_ORIGINS above). Fail-closed default:
+        "unverified" — never assume trust when a caller forgets to pass it.
 
         Returns:
             (result_str, normalized_result)
@@ -85,10 +119,32 @@ class LocalToolBus:
             normalized   — structured result stored in evidence ledger
         """
         context = ExecutionContext(
-            agent_id="",  # populated by caller if needed
+            agent_id=origin,
             mode=mode,
             session_id=session_id,
         )
+
+        # ── 0. Origin gate ────────────────────────────────────────────────────
+        # Runs before routing/quarantine/policy — a spoofed or unverified
+        # caller should never even reach the policy client, let alone the
+        # executor. See TRUSTED_ORIGINS/HIGH_RISK_TOOLS above.
+        if tool_name in HIGH_RISK_TOOLS and origin not in TRUSTED_ORIGINS:
+            msg = (
+                f"Origin '{origin}' is not authorized to call high-risk tool "
+                f"'{tool_name}'. Requires one of: {sorted(TRUSTED_ORIGINS)}."
+            )
+            logger.warning("[tool_bus] %s: origin denied (origin=%s)", tool_name, origin)
+            self._evidence.record_result(
+                capability_id=f"tool.unverified.{tool_name}",
+                input_summary=f"{tool_name}({list(params.keys())})",
+                output_summary=msg,
+                status="origin_denied",
+                session_id=session_id,
+                usable_for_claims=False,
+                error=msg,
+                origin=origin,
+            )
+            return msg, NormalizedResult(ok=False, summary=msg, error=msg, usable_for_claims=False)
 
         # ── 1. Route ──────────────────────────────────────────────────────────
         decision = self._router.resolve_tool(tool_name, mode=mode)
@@ -96,7 +152,7 @@ class LocalToolBus:
             msg = f"Routing blocked: {decision.reason}"
             logger.warning("[tool_bus] %s: %s", tool_name, msg)
             return self._fail(tool_name, params, msg, session_id, "routing_blocked",
-                              capability_id=decision.capability_id)
+                              capability_id=decision.capability_id, origin=origin)
 
         manifest   = decision.manifest
         side_fx    = manifest.get("side_effects", "none") if manifest else "none"
@@ -126,7 +182,7 @@ class LocalToolBus:
                 )
                 logger.warning("[tool_bus] %s: quarantine block (mode=%s)", tool_name, mode)
                 return self._fail(tool_name, params, msg, session_id, "quarantine_blocked",
-                                  capability_id=cap_id)
+                                  capability_id=cap_id, origin=origin)
             logger.info(
                 "[tool_bus] %s: quarantined but mode=repair — allowing execution", tool_name
             )
@@ -136,7 +192,7 @@ class LocalToolBus:
             msg = f"Policy denied: cannot execute '{tool_name}'"
             logger.warning("[tool_bus] %s", msg)
             return self._fail(tool_name, params, msg, session_id, "policy_denied",
-                              capability_id=cap_id)
+                              capability_id=cap_id, origin=origin)
 
         # ── 4. Execute ────────────────────────────────────────────────────────
         t0        = time.monotonic()
@@ -193,6 +249,7 @@ class LocalToolBus:
             duration_ms=duration_ms,
             error=error_str,
             satellite_id=satellite_id,
+            origin=origin,
         )
 
         logger.info(
@@ -209,6 +266,7 @@ class LocalToolBus:
         session_id:    str,
         status:        str,
         capability_id: str = "",
+        origin:        str = "unverified",
     ) -> tuple[str, NormalizedResult]:
         cap_id = capability_id or f"tool.unknown.{tool_name}"
         self._evidence.record_result(
@@ -219,6 +277,7 @@ class LocalToolBus:
             session_id=session_id,
             usable_for_claims=False,
             error=msg,
+            origin=origin,
         )
         norm = NormalizedResult(ok=False, summary=msg, error=msg, usable_for_claims=False)
         return msg, norm

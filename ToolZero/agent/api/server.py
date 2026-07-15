@@ -12,6 +12,7 @@ PlugOps-routed calls come through the WebSocket bridge instead.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -22,6 +23,19 @@ from agent.tools.registry import execute, list_tools
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ToolAgent", docs_url="/docs")
+
+
+def _template_version() -> str:
+    """VERSION file frozen into this agent's root at stamp time (see
+    stamp.py / GENESIS/ToolZero/VERSION). Lets /health answer "which
+    template version" without shelling in."""
+    try:
+        return (Path(__file__).parents[2] / "VERSION").read_text().strip()
+    except Exception:
+        return "unknown"
+
+
+_TEMPLATE_VERSION = _template_version()
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -42,8 +56,9 @@ class ExecuteResponse(BaseModel):
 @app.get("/health")
 async def health():
     return {
-        "status": "ok",
-        "tools":  list_tools(),
+        "status":           "ok",
+        "tools":            list_tools(),
+        "template_version": _TEMPLATE_VERSION,
     }
 
 

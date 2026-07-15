@@ -115,9 +115,15 @@ def _requires_tool_use(message: str) -> bool:
     """
     lowered = message.lower()
 
-    # Todo-loop tasks always require tools — the loop prefixes them with this marker.
-    if lowered.startswith("execute this task now"):
-        return True
+    # NOTE: loops that always require tool use (todo_loop, task_loop) set
+    # state["tool_required"] = True explicitly before calling graph.invoke() —
+    # see agent/core/loops.py and the recall node below. This function is the
+    # content-based fallback used for real chat messages where no explicit
+    # flag was set. Audit finding 2026-07-14: this used to also match on a
+    # literal prefix ("execute this task now") that the todo_loop wrote into
+    # the message text itself — a string the model itself could also read,
+    # not a real signal. Removed in favor of the explicit state flag so origin
+    # can no longer be forged by text content alone.
 
     # Numbered step lists — multi-step task instructions
     question_frame = any(kw in lowered for kw in (
@@ -361,15 +367,33 @@ def make_recall_node(mods: "Modules"):
         recent_set = set(recent)
         merged = recent + [s for s in semantic if s not in recent_set]
 
+        # Fail-closed origin pin. Callers that legitimately know their own
+        # provenance (loops.py's task_loop/todo_loop, PlugOps's authenticated
+        # human-chat ingress) must set state["from_agent"] explicitly before
+        # invoking the graph. Anything that omits it is "unverified" — never
+        # silently promoted to "user". See local_tool_bus.py TRUSTED_ORIGINS.
+        from_agent = state.get("from_agent") or "unverified"
+
+        # tool_required: prefer an explicit flag set by the caller (todo_loop
+        # and task_loop always require tool use by design — see loops.py) over
+        # the content-based heuristic, which exists only as a fallback for
+        # real chat messages where no explicit flag was set. A caller-supplied
+        # True/False is authoritative; only fall back to sniffing the message
+        # text when the caller left it unset entirely.
+        tool_required = state.get("tool_required")
+        if tool_required is None:
+            tool_required = _requires_tool_use(message)
+
         # Always reset max_iterations so stale checkpoints don't carry an old value.
         # tool_required caps spontaneous tool loops to MAX_CHAT_TOOL_ITER.
         return {
             **state,
+            "from_agent":        from_agent,
             "memory_context":    merged,
             "tool_history":      [],
             "tool_iterations":   0,
             "max_iterations":    MAX_TOOL_ITERATIONS,
-            "tool_required":     _requires_tool_use(message),
+            "tool_required":     tool_required,
             "tool_call_pending": False,
             "force_rethink":     False,
             "tools_ran":        0,
@@ -664,9 +688,10 @@ def make_tool_node(local_tool_bus: "LocalToolBus", mods: "Modules"):
         session_id = state.get("session_id", "")
 
         # Route → quarantine → policy → execute → normalize → record evidence (all in bus)
-        mode = state.get("mode", "act")
+        mode   = state.get("mode", "act")
+        origin = state.get("from_agent") or "unverified"
         result_str, normalized = local_tool_bus.execute(
-            tool_name, params, session_id=session_id, mode=mode
+            tool_name, params, session_id=session_id, mode=mode, origin=origin
         )
 
         mods.obs.counter("tool_calls_total", labels={"tool": tool_name})
@@ -714,7 +739,8 @@ def make_respond_node(mods: "Modules"):
         #   - the inference response is long enough to need polishing
         #   - the response isn't already just a tool result (from_agent != "user" skips)
         speech_model = mods.gateway._model_for("speech")
-        from_agent   = state.get("from_agent", "user")
+        # Fail-closed: default "unverified", not "user" — see recall node.
+        from_agent   = state.get("from_agent") or "unverified"
         if (speech_model
                 and speech_model != mods.gateway._model_for("chat")  # only if different model
                 and from_agent == "user"                              # skip agent-to-agent
@@ -742,7 +768,7 @@ def make_respond_node(mods: "Modules"):
             except Exception as e:
                 logger.warning(f"[respond] speech pass failed: {e!r} — using raw response")
 
-        mods.mind_state.save(session_id, message, response)
+        mods.mind_state.save(session_id, message, response, from_agent=from_agent)
         mods.rag.index(session_id, message, response)
         mods.obs.beat(status="ok")
         # NOTE: tool_history and _tools_ran are intentionally preserved in the

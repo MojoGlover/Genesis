@@ -52,6 +52,7 @@ class ResultRecord:
     duration_ms: float = 0.0
     error: str = ""
     satellite_id: str = ""         # which satellite served this result (Fourth Pass)
+    origin: str = "unverified"     # from_agent/provenance of the caller (audit 2026-07-14)
 
 
 @dataclass
@@ -92,6 +93,7 @@ class EvidenceLedger:
         duration_ms: float = 0.0,
         error: str = "",
         satellite_id: str = "",
+        origin: str = "unverified",
     ) -> str:
         """Append a result record. Returns the result_id."""
         if not self._enabled:
@@ -109,6 +111,7 @@ class EvidenceLedger:
             duration_ms=duration_ms,
             error=error[:300] if error else "",
             satellite_id=satellite_id,
+            origin=origin,
         )
         self._append(self._results_path, asdict(rec))
         return rec.id

@@ -44,6 +44,21 @@ MAX_MESSAGE_LEN = 32_000   # ~8K tokens — prevent context explosion
 CHAT_TIMEOUT    = 660      # seconds before abandoning a request — must stay > handler.py HANDLER_TIMEOUT (650); long tool chains need room
 
 
+def _template_version() -> str:
+    """Read the VERSION file frozen into this agent's root at stamp time.
+    Added 2026-07-14 alongside template version tracking (see stamp.py and
+    GENESIS/BlackZero/CHANGELOG.md) — lets /health answer "which template
+    version is this agent actually running" without shelling in."""
+    try:
+        # agent/api/server.py -> agent/api -> agent -> <agent-root>/VERSION
+        return (Path(__file__).parents[2] / "VERSION").read_text().strip()
+    except Exception:
+        return "unknown"
+
+
+_TEMPLATE_VERSION = _template_version()
+
+
 def init(agent_id: str, graph, system_prompt: str, data_dir: Path,
          mods: "Modules | None" = None, ready: bool = False) -> None:
     """Called from main.py once at boot. Signature matches main.py's call exactly."""
@@ -67,7 +82,16 @@ def set_ready() -> None:
 
 class ChatRequest(BaseModel):
     message:    str = Field(..., max_length=MAX_MESSAGE_LEN)
-    from_agent: str = "user"
+    # Fail-closed default: "unverified", NOT "user". Every caller must assert
+    # its own origin explicitly. "user" is reserved for the authenticated
+    # human-chat ingress (PlugOps chat proxy backed by operator auth) — never
+    # rely on this default to mean a real person. Audit finding 2026-07-14:
+    # this field used to default to "user", making any caller that omitted it
+    # (including automated test harnesses hitting this endpoint directly)
+    # indistinguishable from Darnie. See agent/core/local_tool_bus.py
+    # TRUSTED_ORIGINS and agent/modules/mind_state.py for how this value is
+    # used downstream.
+    from_agent: str = "unverified"
     session_id: str = "default"
 
 
@@ -87,9 +111,10 @@ class ChatResponse(BaseModel):
 async def health():
     mod_summary = _mods.summary() if _mods else "modules not initialized"
     return {
-        "status":  "ok" if _ready else "starting",
-        "agent":   _agent_id,
-        "modules": mod_summary,
+        "status":           "ok" if _ready else "starting",
+        "agent":            _agent_id,
+        "modules":          mod_summary,
+        "template_version": _TEMPLATE_VERSION,
     }
 
 
