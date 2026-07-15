@@ -371,6 +371,33 @@ def _detect_fabrication(response: str, tool_history: list[dict]) -> str | None:
                 "as if it succeeded."
             )
 
+    # General case: the model names a SPECIFIC tool it claims to have just
+    # used, but zero tools actually succeeded this turn. Generalizes beyond
+    # the fixed built-in-tool patterns above — those only catch the shared
+    # template tools (write_file/shell/web_search/etc.) by name; this catches
+    # fabricated custom, agent-specific tools too. Confirmed live: an agent
+    # claimed to use a tool called "chronicle_status" (doesn't exist — the
+    # real tool is "chronicle_stats") and reported a fabricated 2^31 entry
+    # count instead of the real count. Deliberately requires `called` to be
+    # completely empty (not just missing that one name) — a model that
+    # slightly misnames a tool it genuinely DID call and succeed at
+    # shouldn't be flagged; only "claimed a tool, but nothing succeeded at
+    # all" is unambiguous fabrication.
+    claimed_tool_names = re.findall(
+        r"i\s+(?:use|used|am using|call|called|ran|invoke|invoked)\s+"
+        r"(?:my|the)?\s*`?([a-z][a-z0-9_]{2,40})`?\s+tool",
+        lowered,
+    )
+    if claimed_tool_names and not called:
+        return (
+            f"FABRICATION DETECTED. You claimed to have used a tool named "
+            f"'{claimed_tool_names[0]}', but no tool actually succeeded this "
+            f"turn. Never invent a tool name or its output. Call a real tool "
+            f"from your actual tool list and report what it really returns, "
+            f"or state plainly that you don't have a tool for this — never "
+            f"answer as if a tool ran when it didn't."
+        )
+
     return None
 
 
