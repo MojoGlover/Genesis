@@ -1,0 +1,41 @@
+# YouTube Comments Crawler config — Karma KaMillion team
+# Proving Ground agent: runs standalone, not wired to Coordinator yet.
+
+identity:
+  id: youtube_crawler
+  team: karma_kamillion
+
+youtube:
+  # Channel IDs (the UC... form, not the @handle) — watchlist lives here, not
+  # hardcoded in main.py, so it can grow without touching code.
+  watchlist:
+    - UC_x5XG1OV2P6uZZ5FSM9Ttw   # placeholder: replace with real channel IDs
+  max_videos_per_channel: 5
+  max_comments_per_video: 100
+  comment_order: relevance   # relevance surfaces higher-engagement threads first
+
+# YouTube Data API v3 free tier: 10,000 units/day.
+# Cost model (see https://developers.google.com/youtube/v3/determine_quota_cost):
+#   playlistItems.list  = 1 unit/call  (used via the channel's uploads playlist,
+#                          not search.list's 100-unit cost — see main.py note)
+#   commentThreads.list  = 1 unit/call
+quota:
+  daily_unit_cap: 10000
+  cost_playlist_items: 1
+  cost_comment_threads: 1
+  warn_threshold_pct: 80
+  state_path: .quota_state.json
+
+scoring:
+  weight_reply_depth: 1.0
+  weight_sentiment: 8.0
+  # Reply count normalized against this before weighting, so one viral
+  # 500-reply thread doesn't swamp everything else in the ranking.
+  reply_depth_cap: 50
+
+output:
+  top_n: 10
+  path: null   # null = stdout only; set a file path to also write JSON there
+
+logging:
+  chronicle_compatible: true

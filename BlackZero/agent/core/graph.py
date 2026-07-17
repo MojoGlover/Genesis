@@ -756,6 +756,15 @@ def make_tool_node(local_tool_bus: "LocalToolBus", mods: "Modules"):
         real_execution = normalized.usable_for_claims
         new_tools_ran = state.get("tools_ran", state.get("_tools_ran", 0)) + (1 if real_execution else 0)
 
+        # A tool that doesn't exist at all is a different case from a tool
+        # that exists and failed: retrying or "thinking harder" cannot fix a
+        # missing tool, and looping back to `think` just gives the model
+        # another chance to paper over the gap with a fabricated claim of
+        # success. registry.py's executor already requests the tool from
+        # Engineer0 and returns this exact "Unknown tool:" prefix — detect it
+        # here and force the graph straight to `respond` instead of `think`.
+        missing_tool = result_str.lower().startswith("unknown tool:")
+
         return {**state,
                 "tool_history": state.get("tool_history", []) + [
                     {"role": "tool_result", "content": result_str}
@@ -764,7 +773,8 @@ def make_tool_node(local_tool_bus: "LocalToolBus", mods: "Modules"):
                 "_tools_ran":       new_tools_ran,
                 "last_result":      {},   # clear so stale native tool_calls can't replay
                 "_last_result":     {},
-                "tool_call_pending": False}
+                "tool_call_pending": False,
+                "missing_tool":     missing_tool}
 
     return tool
 
@@ -874,7 +884,15 @@ def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules
     )
     graph.add_conditional_edges("think", should_continue,
                                 {"tool": "tool", "think": "think", "respond": "respond"})
-    graph.add_edge("tool", "think")
+    # Missing-tool calls pause the loop instead of looping back to `think` —
+    # see make_tool_node's `missing_tool` flag. The request to build the tool
+    # has already gone out (registry.py); the model gets one honest response
+    # about it, not another chance to reason its way around the gap.
+    graph.add_conditional_edges(
+        "tool",
+        lambda state: "respond" if state.get("missing_tool") else "think",
+        {"respond": "respond", "think": "think"},
+    )
     graph.add_edge("respond", END)
 
     # Persistent checkpointing — survives crashes, enables mid-task resume.

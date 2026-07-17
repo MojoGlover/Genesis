@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Quota state — regenerated at runtime, per-machine
+.quota_state.json
+
+# Secrets — never commit
+.env
+.env.local

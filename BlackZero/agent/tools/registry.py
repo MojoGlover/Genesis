@@ -762,13 +762,35 @@ def build_executor() -> Callable[[str, dict], str]:
                 requesting = os.environ.get("AGENT_ID", "blackzero")
                 logger.warning(f"[registry] Unknown tool '{tool_name}' requested by {requesting}")
                 available = ", ".join(sorted(t["name"] for t in TOOL_SCHEMAS))
-                # Honest failure — do NOT claim it was "flagged for resolution".
-                # (The old handler wrote a task into ~/.engineerv/tasks.db, an
-                # agent that does not exist, and injected a false completion
-                # claim into the model's reasoning loop.)
+
+                # Real request, not a fake one: the old handler wrote a task
+                # into ~/.engineerv/tasks.db, an agent that does not exist,
+                # and injected a false completion claim into the model's
+                # reasoning loop. Engineer0 is the real, live coding agent —
+                # ask it directly. Never let a messaging failure here mask
+                # the honest "unknown tool" result below.
+                try:
+                    messaging.send_to_agent(
+                        to="engineer0",
+                        message=(
+                            f"Missing tool request from '{requesting}': tool '{tool_name}' "
+                            f"was called but is not in its registry. Please build it, "
+                            f"register it in agent/tools/registry.py, and notify "
+                            f"'{requesting}' to reload."
+                        ),
+                    )
+                except Exception as e:
+                    logger.error(f"[registry] Failed to send missing-tool request for '{tool_name}': {e}")
+
+                # Honest failure — do NOT claim it was resolved. graph.py's
+                # tool node detects this exact "Unknown tool:" prefix and
+                # routes straight to `respond` instead of looping back to
+                # `think`, so the model gets one honest turn about this, not
+                # another chance to reason its way around the gap.
                 return (
                     f"Unknown tool: '{tool_name}'. It does not exist in this agent's "
-                    f"registry, so nothing was executed. Available tools: {available}"
+                    f"registry, so nothing was executed. A request to build it has been "
+                    f"sent to Engineer0. Available tools: {available}"
                 )
 
         except TypeError as e:

@@ -1,0 +1,52 @@
+# Reddit Crawler config — Karma KaMillion team
+# Proving Ground agent: runs standalone, not wired to Coordinator yet.
+
+identity:
+  id: reddit_crawler
+  team: karma_kamillion
+
+# Reddit's free listing endpoints (r/<sub>/new.json) are public and need no
+# OAuth for read-only access — only a descriptive User-Agent, or Reddit
+# throttles/blocks generic ones.
+reddit:
+  user_agent: "karma-kamillion-reddit-crawler/0.1 (by /u/darnieglover)"
+  subreddits:
+    - antiwork
+    - TalesFromRetail
+    - tifu
+    - AITA
+    - CustomerService
+    - neighborsfromhell
+    - RoommateFromHell
+  listing: new       # new.json — freshest posts, filtered by max_age_hours below
+  posts_per_subreddit: 100
+  max_age_hours: 72
+
+# Reddit free tier: 100 req/min, 1000 req/10min. This gate is local/in-process
+# only — Accountant (the grid's real quota authority) isn't online yet. Once
+# it is, this should call Accountant's /spend/check instead of tracking its
+# own window. See feedback_port_assignment_policy-style memory: don't hand-
+# roll infra that a shared service is meant to own, once that service exists.
+quota:
+  requests_per_minute: 100
+  requests_per_10min: 1000
+  warn_threshold_pct: 80
+
+scoring:
+  weight_comment_velocity: 1.0
+  weight_upvote_ratio: 5.0
+  weight_repeat_signal: 3.0
+  # Two post titles cluster together (same complaint, different words) when
+  # the Jaccard similarity of their significant-word sets meets this bar.
+  phrase_cluster_jaccard_threshold: 0.5
+
+output:
+  top_n: 10
+  path: null   # null = stdout only; set a file path to also write JSON there
+
+logging:
+  # Chronicle wire schema (kind/actor/target/object/action/outcome) so these
+  # lines can be forwarded verbatim once this agent is wired to Coordinator/
+  # Chronicle ingest. Not POSTed anywhere yet — Proving Ground rule: solo
+  # first, no coordinator wiring.
+  chronicle_compatible: true
