@@ -28,6 +28,7 @@ from agent.modules.mind_state     import MindStateClient
 from agent.modules.scheduler      import SchedulerClient
 from agent.modules.tool_bus       import ToolBusClient
 from agent.modules.rag            import RAGClient
+from agent.modules.evidence       import EvidenceLedger
 
 
 @dataclass
@@ -42,6 +43,7 @@ class Modules:
     scheduler: SchedulerClient
     tool_bus:  ToolBusClient
     rag:       RAGClient
+    evidence:  EvidenceLedger
 
     def summary(self) -> str:
         enabled = []
@@ -104,4 +106,5 @@ def init_modules(config: dict, agent_id: str, data_dir: Path | None = None) -> M
         rag        = RAGClient(data_dir or Path(f"~/.{agent_id}").expanduser(),
                                agent_id=agent_id,
                                enabled=enabled("rag", True)),
+        evidence   = EvidenceLedger(data_dir or Path(f"~/.{agent_id}").expanduser()),
     )

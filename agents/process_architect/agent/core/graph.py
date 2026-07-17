@@ -34,6 +34,10 @@ from agent.tools.registry import (
     TOOL_DOCS, OLLAMA_TOOL_DEFS, build_executor,
     parse_tool_call, parse_native_tool_call,
 )
+from agent.core.local_tool_bus  import LocalToolBus
+from agent.core.router          import CapabilityRouter
+from agent.core.quarantine      import QuarantineOverlay
+from agent.core.satellite_router import SatelliteRouter
 
 if TYPE_CHECKING:
     from agent.modules import Modules
@@ -286,6 +290,9 @@ def make_recall_node(mods: "Modules"):
 
         return {
             **state,
+            # Fail-closed: an untagged caller is "unverified", never silently
+            # promoted to "user". See local_tool_bus.py TRUSTED_ORIGINS.
+            "from_agent":        state.get("from_agent") or "unverified",
             "memory_context":    merged,
             "tool_history":      [],
             "tool_iterations":   0,
@@ -459,7 +466,7 @@ def make_think_node(mods: "Modules", system_prompt: str):
     return think
 
 
-def make_tool_node(execute_tool, mods: "Modules"):
+def make_tool_node(local_tool_bus: "LocalToolBus", mods: "Modules"):
     def tool(state: dict) -> dict:
         # Try native tool_calls format first (from gateway result stored in state),
         # then fall back to text parsing from the response string.
@@ -479,19 +486,16 @@ def make_tool_node(execute_tool, mods: "Modules"):
                     "force_rethink":     True,   # route back to think so repair hint fires
                     "_last_result":      {}}
 
-        tool_name = tool_call.get("tool", "")
-        params    = tool_call.get("params", {})
+        tool_name  = tool_call.get("tool", "")
+        params     = tool_call.get("params", {})
+        session_id = state.get("session_id", "")
 
-        if not mods.policy.allow(action="tool_call", resource=tool_name):
-            logger.warning(f"[tool] Policy denied: {tool_name}")
-            result_str = f"Policy denied: cannot execute '{tool_name}'"
-        else:
-            logger.info(f"[tool] Executing: {tool_name}")
-            try:
-                result_str = execute_tool(tool_name, params)
-            except Exception as e:
-                result_str = f"Tool error: {e}"
-                logger.error(f"[tool] {tool_name}: {e}")
+        # Route → quarantine → policy → execute → normalize → record evidence (all in bus)
+        mode   = state.get("mode", "act")
+        origin = state.get("from_agent") or "unverified"
+        result_str, normalized = local_tool_bus.execute(
+            tool_name, params, session_id=session_id, mode=mode, origin=origin
+        )
 
         if len(result_str) > 8000:
             result_str = result_str[:8000] + "\n…(truncated)"
@@ -502,20 +506,23 @@ def make_tool_node(execute_tool, mods: "Modules"):
         # tools, policy denials, or tool errors. An unknown/errored tool still
         # goes into tool_history so the model can see the failure, but it does
         # NOT count as evidence that real work was done.
-        lowered_result = result_str.lower()
-        real_execution = not (
-            lowered_result.startswith("unknown tool:") or
-            lowered_result.startswith("policy denied:") or
-            lowered_result.startswith("tool error:") or
-            lowered_result.startswith("error:")
-        )
+        real_execution = normalized.usable_for_claims
+        new_tools_ran  = state.get("_tools_ran", 0) + (1 if real_execution else 0)
+
+        # A tool that doesn't exist at all is a different case from a tool
+        # that exists and failed: retrying cannot fix a missing tool, and
+        # looping back to `think` just gives the model another chance to
+        # paper over the gap with a fabricated claim of success. Detect it
+        # here and force the graph straight to `respond` instead of `think`.
+        missing_tool = result_str.lower().startswith("unknown tool:")
 
         return {**state,
                 "tool_history": state.get("tool_history", []) + [
                     {"role": "tool_result", "content": result_str}
                 ],
-                "_tools_ran":        state.get("_tools_ran", 0) + (1 if real_execution else 0),
-                "tool_call_pending": False}
+                "_tools_ran":        new_tools_ran,
+                "tool_call_pending": False,
+                "missing_tool":      missing_tool}
 
     return tool
 
@@ -549,20 +556,33 @@ def should_continue(state: dict) -> str:
 # ── Graph builder ──────────────────────────────────────────────────────────────
 
 def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules"):
-    """Build and compile the Engineer0 ReAct graph."""
-    execute_tool = build_executor()
+    """Build and compile the Process Architect ReAct graph."""
+    execute_tool     = build_executor()
+    registry_dir     = Path(__file__).resolve().parent.parent.parent / "registry"
+    router           = CapabilityRouter(registry_dir)
+    satellite_router = SatelliteRouter(registry_dir)
+    quarantine       = QuarantineOverlay(data_dir)
+    tool_bus         = LocalToolBus(
+        execute_tool, router, mods.policy, mods.evidence, quarantine, satellite_router
+    )
 
     graph = StateGraph(dict)
     graph.add_node("recall",  make_recall_node(mods))
     graph.add_node("think",   make_think_node(mods, system_prompt))
-    graph.add_node("tool",    make_tool_node(execute_tool, mods))
+    graph.add_node("tool",    make_tool_node(tool_bus, mods))
     graph.add_node("respond", make_respond_node(mods))
 
     graph.set_entry_point("recall")
     graph.add_edge("recall", "think")
     graph.add_conditional_edges("think", should_continue,
                                 {"tool": "tool", "think": "think", "respond": "respond"})
-    graph.add_edge("tool", "think")
+    # Missing-tool calls pause the loop instead of looping back to `think` —
+    # see make_tool_node's `missing_tool` flag.
+    graph.add_conditional_edges(
+        "tool",
+        lambda state: "respond" if state.get("missing_tool") else "think",
+        {"respond": "respond", "think": "think"},
+    )
     graph.add_edge("respond", END)
 
     # Persistent checkpointing — survives crashes, enables mid-task resume.
