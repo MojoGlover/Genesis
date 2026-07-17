@@ -12,7 +12,12 @@ Boot sequence verified:
 - ✅ Mission loads and parses
 - ✅ System prompt builds correctly
 - ✅ LangGraph compiles: `recall → think ⇄ tool → respond`
-- ✅ Bootstrap check passes (LLM acknowledges mission)
+- ❌ Bootstrap check — **not actually run.** `MissionLoader.bootstrap_check()`
+  and `save_bootstrap_result()` (agent/core/mission.py) are fully implemented
+  but never called anywhere in the codebase — confirmed by grep, 2026-07-17
+  deep audit. This line claimed "passes" for months with no code path that
+  could have run it. Either wire it into main.py's boot sequence or remove
+  the claim; don't leave it stated as done.
 - ✅ Live graph invocation works (full recall → think ⇄ tool → respond cycle)
 - ✅ Memory writes to SQLite and reads back
 
@@ -72,10 +77,12 @@ It builds on top of `engineer0:latest` — that must exist first.
 | MissionLoader | `agent/core/mission.py` | ✅ Complete |
 | LangGraph nodes | `agent/core/graph.py` | ✅ Complete — recall, think, respond |
 | Message handler | `agent/plugops/handler.py` | ✅ Complete |
-| PlugOps bridge | `agent/plugops/bridge.py` | ✅ Complete — heartbeat + reconnect |
+| PlugOps bridge | `agent/plugops/bridge.py` | ✅ Complete — heartbeat + reconnect + capability self-check (2026-07-17) |
 | API server | `agent/api/server.py` | ✅ Complete — /health + /api/chat |
 | SQLite memory | `agent/core/graph.py` | ✅ Inline — fetch + save |
-| Bootstrap check | `agent/core/mission.py` | ✅ Complete |
+| Bootstrap check | `agent/core/mission.py` | ❌ Implemented but never called — see boot sequence note above (2026-07-17) |
+| RAG retriever | `agent/modules/rag.py` | ✅ Complete — ChromaDB, wired into recall/respond nodes (graph.py:418,836). Found 2026-07-17 during deep audit: this table previously listed it under "still needed" at a path (`agent/memory/rag.py`) that never existed — it was done and undocumented. |
+| Model gateway w/ cloud fallback | `agent/modules/gateway.py` | ✅ Complete — 5-tier chain (cloud primary → local gateway → direct Ollama → Gemini → Anthropic last resort), honest cost accounting. Same 2026-07-17 finding: previously listed as "still needed" (`agent/models/router.py`, never existed) — the real thing already covers it under a different name. |
 
 ---
 
@@ -85,9 +92,7 @@ These are enhancements — not blockers. BlackZero runs without them.
 
 | Component | Location | What It Adds |
 |-----------|----------|--------------|
-| RAG retriever | `agent/memory/rag.py` | ChromaDB + embeddings for long-term semantic memory |
-| Model router | `agent/models/router.py` | Fallback to Anthropic/OpenAI if Ollama is down |
-| Self-test runner | `agent/core/diagnostics.py` | Automated module health checks on boot |
+| Self-test runner | `agent/core/diagnostics.py` | Automated module health checks on boot. Confirmed still missing (2026-07-17 audit) — no equivalent exists; `agent/core/audit.py` is a manual CLI, not a boot-time check. |
 
 ---
 
