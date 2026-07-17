@@ -858,7 +858,7 @@ def should_continue(state: dict) -> str:
 
 def build_graph(config: dict, system_prompt: str, data_dir: Path, mods: "Modules"):
     """Build and compile the BlackZero ReAct graph."""
-    execute_tool     = build_executor()
+    execute_tool     = build_executor(data_dir)
     registry_dir     = Path(__file__).resolve().parent.parent.parent / "registry"
     router           = CapabilityRouter(registry_dir)
     satellite_router = SatelliteRouter(registry_dir)

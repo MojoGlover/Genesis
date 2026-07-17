@@ -70,6 +70,11 @@ HIGH_RISK_TOOLS = frozenset({
     "git_add", "git_commit", "git_push",
     "adb",
     "assign_api", "revoke_api",
+    # Added 2026-07-17 deep audit: web_browser was fully built (real
+    # Playwright automation, including a signup action that submits real
+    # forms and can create real accounts) but had never been wired into the
+    # dispatch table at all, so it never went through this gate either.
+    "web_browser",
 })
 
 

@@ -279,6 +279,58 @@ TOOL_SCHEMAS: list[dict] = [
         "description": "List all agents currently registered with PlugOps and their online status",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        # Found unregistered during the 2026-07-17 deep audit — agent/tools/
+        # web_browser.py is a complete Playwright implementation (navigate,
+        # read_page, fill_form, click, screenshot, extract, signup, close)
+        # that was never wired into this dispatch table. HIGH_RISK_TOOLS in
+        # local_tool_bus.py gates it the same way as shell/write_file/git —
+        # it can submit real forms and create real accounts, not sandboxed.
+        # Requires `pip install playwright && playwright install chromium` —
+        # fails loud with a clear RuntimeError if that hasn't been done.
+        "name": "web_browser",
+        "description": (
+            "Headless Chromium browser: navigate, read a page, fill a form, "
+            "click an element, take a screenshot, extract data, or run a full "
+            "signup flow (navigate + fill + submit + confirm). One action per "
+            "call — chain calls for multi-step flows. Real side effects: this "
+            "submits real forms and can create real accounts."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["navigate", "read_page", "fill_form", "click", "screenshot", "extract", "signup", "close"],
+                    "description": "Which browser action to perform",
+                },
+                "url":              {"type": "string",  "description": "navigate (required) / read_page,fill_form,screenshot,extract (optional: load this URL first) / signup (required)"},
+                "selector":         {"type": "string",  "description": "read_page: element to read instead of the whole body / click (required): CSS selector to click"},
+                "wait_after":       {"type": "number",  "description": "click: seconds to wait after clicking (default 2.0)"},
+                "full_page":        {"type": "boolean", "description": "screenshot: capture full scrollable page vs. viewport only (default true)"},
+                "filename":         {"type": "string",  "description": "screenshot: output filename (default: timestamped)"},
+                "selectors": {
+                    "type": "object",
+                    "description": "extract (required): {\"field_name\": \"css_selector\", ...} — one CSS selector per named field to pull text from",
+                    "additionalProperties": {"type": "string"},
+                },
+                "fields": {
+                    "type": "array",
+                    "description": "fill_form (required) / signup (required): [{\"selector\": \"#email\", \"value\": \"...\"}, ...]",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "selector": {"type": "string"},
+                            "value":    {"type": "string"},
+                        },
+                    },
+                },
+                "submit_selector":    {"type": "string", "description": "fill_form (optional): submits if given / signup (required): CSS selector for the submit button"},
+                "confirmation_text":  {"type": "string", "description": "signup: text to look for on the resulting page to confirm success"},
+            },
+            "required": ["action"],
+        },
+    },
 ]
 
 
@@ -610,15 +662,22 @@ def parse_native_tool_call(message: dict) -> dict | None:
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
-def build_executor() -> Callable[[str, dict], str]:
+def build_executor(data_dir: Path | None = None) -> Callable[[str, dict], str]:
     """
     Build and return the tool executor function.
     Called once at agent boot. Returns a closure over all tool modules.
+
+    data_dir: required for the web_browser tool (screenshots/cookie session
+    storage need a real directory to write to). Callers that don't pass one
+    simply don't get web_browser — it reports itself as unavailable through
+    the normal tool-result error path rather than crashing the executor.
     """
     from agent.tools import shell, files, git_tool, python_repl, web, helper, messaging
+    _browser = None  # lazy: Playwright launch is expensive, only pay for it if used
 
     def execute(tool_name: str, params: dict) -> str:
         """Dispatch a tool call. Returns result as string for LLM context."""
+        nonlocal _browser
         try:
             if tool_name == "shell":
                 result = shell.run(**params)
@@ -752,6 +811,21 @@ def build_executor() -> Callable[[str, dict], str]:
                     caps   = ", ".join(a.get("capabilities", [])[:3])
                     lines.append(f"  {name} ({alias}) — {status}  [{caps}]")
                 return "\n".join(lines)
+
+            elif tool_name == "web_browser":
+                if data_dir is None:
+                    return ("error: web_browser unavailable — this agent's executor "
+                            "wasn't given a data_dir at boot")
+                if _browser is None:
+                    from agent.tools.web_browser import WebBrowser
+                    _browser = WebBrowser(data_dir)
+                try:
+                    result = _browser.run(params)
+                except Exception as e:
+                    return f"error: web_browser failed: {e}"
+                if not result.get("ok"):
+                    return f"error: {result.get('error', 'web_browser failed')}"
+                return json.dumps(result)[:5000]
 
             elif tool_name in _CUSTOM_EXECUTORS:
                 # Per-agent custom tool (folded in via custom_tools.py — see seam

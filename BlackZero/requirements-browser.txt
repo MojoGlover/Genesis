@@ -1,0 +1,12 @@
+# BlackZero — optional browser automation dependency.
+# Appended into a stamped agent's requirements.txt by stamp.py only when
+# `--browser` (or manifest `browser: true`) is set. Not installed by
+# default — most agents never need real-world browser side effects, and
+# this tool is HIGH_RISK-gated (see agent/core/local_tool_bus.py) for the
+# agents that do.
+#
+# After pip install, the browser binary itself still needs a separate
+# download — pip alone does not fetch it:
+#   playwright install chromium
+
+playwright>=1.40,<2.0
