@@ -63,7 +63,9 @@ def set_ready() -> None:
 
 class ChatRequest(BaseModel):
     message:    str = Field(..., max_length=MAX_MESSAGE_LEN)
-    from_agent: str = "user"
+    # Fail-closed: an untagged caller is "unverified", never silently
+    # promoted to "user". See local_tool_bus.py TRUSTED_ORIGINS.
+    from_agent: str = "unverified"
     session_id: str = "default"
 
 

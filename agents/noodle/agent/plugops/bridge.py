@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -102,6 +103,16 @@ class PlugOpsBridge:
         self.agent_name          = agent_name
         self.capabilities        = capabilities
         self.on_message_callback = on_message_callback
+        # env vars first, config.yaml as fallback — the launchd plist sets
+        # these per-plug; a bridge that only reads config.yaml never learns
+        # its own reachable host/port and registers with neither (confirmed
+        # bug class on Accountant, 2026-07-17: every other agent's URL
+        # lookup for her 503'd forever since she never registered a location).
+        _port_raw: str | None = os.environ.get("AGENT_PORT") or (
+            str(cfg["port"]) if cfg.get("port") else None
+        )
+        self._host: str | None = os.environ.get("PLUG_HOST") or cfg.get("host")
+        self._port: int | None = int(_port_raw) if _port_raw else None
         self._heartbeat_secs     = cfg.get("heartbeat_seconds", 10)
         self._backoff_max        = cfg.get("reconnect_max_seconds", 30)
         # If PlugOps goes silent, reconnect after this many seconds with no event.
@@ -177,20 +188,31 @@ class PlugOpsBridge:
         assert self._client is not None
         for attempt in range(retries):
             try:
+                payload: dict = {
+                    "id":           self.agent_id,
+                    "name":         self.agent_name,
+                    "type":         "autonomous",
+                    "base_dir":     f"/agents/{self.agent_id}",
+                    "capabilities": self.capabilities,
+                    "metadata": {
+                        # Was Engineer0's hardcoded emoji/role (copy-paste
+                        # artifact — same identity-drift bug class R8 caught
+                        # on CEO). Noodle is the Creative Director.
+                        "emoji": "🎨",
+                        "role":  "Creative Director",
+                        "capability_status": capability_self_check(self.agent_name),
+                    },
+                }
+                # Include host+port so PlugOps can derive api_url for grid resolution.
+                # Other agents call GET /api/v1/agents/{id}/url instead of hardcoding.
+                if self._host:
+                    payload["host"] = self._host
+                if self._port:
+                    payload["port"] = self._port
+
                 r = await self._client.post(
                     f"{self.base_url}/api/v1/agents/register",
-                    json={
-                        "id":           self.agent_id,
-                        "name":         self.agent_name,
-                        "type":         "autonomous",
-                        "base_dir":     f"/agents/{self.agent_id}",
-                        "capabilities": self.capabilities,
-                        "metadata": {
-                            "emoji": "⚙️",
-                            "role":  "Systems, code & infrastructure",
-                            "capability_status": capability_self_check(self.agent_name),
-                        },
-                    },
+                    json=payload,
                 )
                 if r.status_code in (200, 201, 409):
                     self._connected = True

@@ -12,21 +12,27 @@ identity:
 data_dir: ~/.noodle
 port: 5007
 model:
-  provider: anthropic
-  cloud_model: claude-haiku-4-5
+  # provider flipped anthropic → ollama 2026-07-16 (R6 cloud-leak fix, Darnie's
+  # call). Cloud fields blanked so there's no cloud model to fall back to even
+  # if code tried. Grid rule: ollama-only, no authorized cloud exceptions.
+  provider: ollama
+  cloud_model: ""
   primary: blackzero-hardened:latest
   fallback: blackzero-hardened:latest
-  cloud_fallback: claude-haiku-4-5
+  cloud_fallback: ""
   task_ollama: http://100.113.209.66:11434
   task_model: phi4:14b
 models:
   chat: noodle:latest
   reasoning: noodle:latest
   fast: noodle:latest
-  code: qwen2.5-coder:3b
+  code: qwen2.5-coder:7b
   embedding: all-mpnet-base-v2
 plugops:
-  url: https://plugzero-581737577470.us-central1.run.app
+  # Was the DELETED Cloud Run instance (plugzero-…run.app, gone since
+  # 2026-06-11 D2). PlugOps runs on plugfoe; this is the offline fallback,
+  # the launchd plist's PLUGOPS_URL env var is authoritative. Fixed 2026-07-17.
+  url: http://100.67.171.41:9000
   heartbeat_seconds: 10
   reconnect_max_seconds: 30
 modules:
@@ -64,6 +70,7 @@ modules:
     enabled: true
 mobility:
   enabled: false
-  plugops_url: https://plugzero-581737577470.us-central1.run.app
+  # Same dead Cloud Run URL as plugops.url above — fixed 2026-07-17.
+  plugops_url: http://100.67.171.41:9000
 logging:
   level: INFO
