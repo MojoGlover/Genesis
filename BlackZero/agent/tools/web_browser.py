@@ -255,6 +255,12 @@ class WebBrowser(BaseTool):
             "ok": True,
             "path": str(path),
             "url": self._page.url,
+            # Servable path (agent/api/server.py's GET /screenshots/{filename})
+            # — this is what should go in a markdown image link
+            # (![screenshot](screenshot_url)) so it renders inline in the
+            # dashboard chat, not "path" or "url" above (local filesystem
+            # path and the browsed page's own URL, neither servable).
+            "screenshot_url": f"/screenshots/{filename}",
         }
 
     def _extract(self, input: dict) -> dict:

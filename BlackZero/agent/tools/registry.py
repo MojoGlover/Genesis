@@ -485,6 +485,23 @@ call another tool. When done, output your final response as plain text.
 {"tool": "list_agents", "params": {}}
 ```
 
+**web_browser** — Headless Chromium browser: navigate, read a page, fill a
+form, click, screenshot, extract data, or run a full signup flow. Real side
+effects — this submits real forms and can create real accounts.
+```json
+{"tool": "web_browser", "params": {"action": "navigate", "url": "https://example.com"}}
+```
+- `action` (required): one of navigate, read_page, fill_form, click,
+  screenshot, extract, signup, close
+- navigate/signup need `url`; click needs `selector` (CSS only, not text);
+  fill_form/signup need `fields` (list of `{"selector","value"}`) and
+  optionally `submit_selector`; extract needs `selectors` (a dict of
+  `{"field_name": "css_selector"}`); screenshot takes optional `full_page`
+  and `filename`
+- screenshot's result includes `screenshot_url` — a caller-side convention
+  (not enforced here) is to put it in a reply as `![screenshot](that_url)`
+  so a UI that renders markdown images shows it inline
+
 ### Rules
 - Use the minimum number of tool calls needed.
 - Prefer read_file before editing — always know what you're changing.
@@ -675,9 +692,28 @@ def build_executor(data_dir: Path | None = None) -> Callable[[str, dict], str]:
     from agent.tools import shell, files, git_tool, python_repl, web, helper, messaging
     _browser = None  # lazy: Playwright launch is expensive, only pay for it if used
 
+    # Playwright's SYNC API is thread-affined: every call after the first
+    # must run on the exact same OS thread that created the browser, or it
+    # crashes with "greenlet.error: Cannot switch to a different thread".
+    # execute() itself is normally invoked from a request-handling thread
+    # pool (e.g. FastAPI's run_in_executor), which does NOT guarantee the
+    # same worker thread twice — confirmed live 2026-07-17: a second
+    # web_browser call in one turn crashed exactly this way. Pin all
+    # browser work (including the lazy WebBrowser() construction below) to
+    # one dedicated single-worker executor so it always lands on the same
+    # thread, for the lifetime of this agent process.
+    import concurrent.futures as _cf
+    _browser_executor = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="web_browser")
+
+    def _run_on_browser_thread(params: dict) -> dict:
+        nonlocal _browser
+        if _browser is None:
+            from agent.tools.web_browser import WebBrowser
+            _browser = WebBrowser(data_dir)
+        return _browser.run(params)
+
     def execute(tool_name: str, params: dict) -> str:
         """Dispatch a tool call. Returns result as string for LLM context."""
-        nonlocal _browser
         try:
             if tool_name == "shell":
                 result = shell.run(**params)
@@ -816,11 +852,14 @@ def build_executor(data_dir: Path | None = None) -> Callable[[str, dict], str]:
                 if data_dir is None:
                     return ("error: web_browser unavailable — this agent's executor "
                             "wasn't given a data_dir at boot")
-                if _browser is None:
-                    from agent.tools.web_browser import WebBrowser
-                    _browser = WebBrowser(data_dir)
                 try:
-                    result = _browser.run(params)
+                    # .result() blocks this (calling) thread until the
+                    # single browser-thread worker finishes — same
+                    # synchronous contract as every other tool here, just
+                    # executed on a pinned thread instead of this one.
+                    result = _browser_executor.submit(_run_on_browser_thread, params).result(timeout=60)
+                except _cf.TimeoutError:
+                    return "error: web_browser timed out after 60s"
                 except Exception as e:
                     return f"error: web_browser failed: {e}"
                 if not result.get("ok"):
