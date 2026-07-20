@@ -70,6 +70,19 @@ async def main() -> None:
 
     logger.info(f"Starting {agent_name} (id={agent_id})")
 
+    # PlugOps URL — computed early so both the first-boot hook (below) and the
+    # bridge (step 7) share one source of truth instead of recomputing it.
+    plugops_url = (
+        os.environ.get("PLUGOPS_URL")
+        or config.get("plugops", {}).get("url", "")
+        or f"ws://127.0.0.1:9000/ws/{agent_id}"
+    )
+    # REST base for plain HTTP POSTs (self_spec, messaging.py) — same
+    # ws://.../wss:// -> http://.../https:// normalisation PlugOpsBridge
+    # does internally, done here too since self_spec runs before the bridge exists.
+    _plugops_rest_base = plugops_url.replace("wss://", "https://").replace("ws://", "http://")
+    _plugops_rest_base = "/".join(_plugops_rest_base.split("/")[:3])
+
     # ── 2. Mission ────────────────────────────────────────────────────────────
     from agent.core.mission import MissionLoader, MissionMissingError
     from agent.core.state import AgentIdentity
@@ -96,6 +109,18 @@ async def main() -> None:
     from agent.modules import init_modules
     mods = init_modules(config, agent_id, data_dir=data_dir)
     logger.info(f"[modules] {mods.summary()}")
+
+    # ── 3a. First-boot hooks (self-spec) ──────────────────────────────────────
+    # No-op unless FIRST_BOOT=true is set in the environment — existing agents
+    # are unaffected. See agent/core/startup.py.
+    from agent.core.startup import run_first_boot_hooks
+    run_first_boot_hooks(
+        agent_id=agent_id,
+        agent_dir=AGENT_DIR,
+        missions_dir=MISSIONS_DIR,
+        mods=mods,
+        plugops_url=_plugops_rest_base,
+    )
 
     # ── 3b. Restore from PlugOps snapshot (Agent Hospital / mobility) ─────────
     _restored_snapshot: dict | None = None
@@ -152,12 +177,6 @@ async def main() -> None:
     # ── 7. PlugOps bridge ─────────────────────────────────────────────────────
     from agent.plugops.bridge import PlugOpsBridge, RegistrationRequired
     from agent.plugops.handler import MessageHandler
-
-    plugops_url = (
-        os.environ.get("PLUGOPS_URL")
-        or config.get("plugops", {}).get("url", "")
-        or f"ws://127.0.0.1:9000/ws/{agent_id}"
-    )
 
     # Rule (Darnie 2026-06-05): only Engineer0 may serve without PlugOps.
     # All other agents must exit if registration fails — launchd/systemd retries.
