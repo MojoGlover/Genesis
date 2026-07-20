@@ -1,0 +1,5 @@
+# Adversary has no tunable behavior beyond the checklist baked into main.py
+# (deliberately — the checklist is the whole point, it shouldn't be quietly
+# reconfigurable per decision). This file exists for pattern consistency with
+# the other subordinates and future Chronicle/env overrides.
+placeholder: true
