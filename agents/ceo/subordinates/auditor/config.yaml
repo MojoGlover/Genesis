@@ -1,0 +1,6 @@
+# Auditor config. Override any value via env var (see .env.example) — never
+# hardcode paths, ports, or hosts here.
+
+# Root directory artifact_path claims are resolved against. A claim can't
+# point outside this root (ArtifactResolver rejects path escapes).
+artifact_root: "."
