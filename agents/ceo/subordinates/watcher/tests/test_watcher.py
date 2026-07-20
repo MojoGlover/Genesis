@@ -7,7 +7,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "schemas"))
 
 import pytest
 
-from main import LedgerEntry, NoGoLedger, evaluate_entry, monitor, parse_condition
+from main import (
+    LedgerEntry,
+    NoGoLedger,
+    _flatten_ledger_budget,
+    evaluate_entry,
+    fetch_accountant_snapshot,
+    monitor,
+    parse_condition,
+)
 from nogo_deliverable import validate_nogo_deliverable
 
 YESTERDAY = (date.today() - timedelta(days=1)).isoformat()
@@ -137,3 +145,41 @@ def test_monitor_does_not_trigger_without_data(ledger):
     assert surfaced == []
     entries = ledger.load()
     assert entries[0].status == "degraded"
+
+
+# ── Live Accountant integration ──────────────────────────────────────────────
+# Accountant is a real agent (Botico/agents/accountant, port 5002 locally) —
+# these test the parsing logic against her real ledger_budget response shape,
+# and the fetch path's graceful-degrade behavior, without depending on a
+# live server being up during test runs.
+
+def test_flatten_ledger_budget_matches_real_response_shape():
+    # Shape from accountant/agent/tools/financial.py::ledger_budget
+    budget = {"ok": True, "cap_usd": 50.0, "window_days": 30,
+              "spend_in_window_usd": 12.5, "remaining_usd": 37.5, "pct_used": 25.0}
+    flat = _flatten_ledger_budget("engineer0", budget)
+    assert flat == {
+        "engineer0_spend_usd": 12.5,
+        "engineer0_pct_used": 25.0,
+        "engineer0_remaining_usd": 37.5,
+        "engineer0_cap_usd": 50.0,
+    }
+
+
+def test_fetch_accountant_snapshot_no_agents_returns_none():
+    assert fetch_accountant_snapshot("http://localhost:5002", []) is None
+
+
+def test_fetch_accountant_snapshot_unreachable_degrades_to_none():
+    # Port 1 is a reserved/refused port on localhost — fails fast, no live
+    # server dependency, exercises the same path as Accountant actually being down.
+    result = fetch_accountant_snapshot("http://localhost:1", ["engineer0"], timeout=1.0)
+    assert result is None
+
+
+def test_evaluate_entry_uses_flattened_accountant_metric_keys():
+    entry = LedgerEntry(decision_id="d1", unlock_condition="engineer0_spend_usd exceeds 100",
+                         recheck_date=TODAY, redirect_use="x")
+    snapshot = _flatten_ledger_budget("engineer0", {"spend_in_window_usd": 150.0})
+    status = evaluate_entry(entry, snapshot, now=date.today())
+    assert status == "triggered"

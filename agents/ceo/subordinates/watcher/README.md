@@ -18,20 +18,27 @@ Watcher's.
   the ones **newly** surfaced this pass (idempotent — an entry is surfaced
   once, not re-alerted every poll)
 
-**Accountant doesn't exist yet.** `_load_accountant_data()` reads a flat
-JSON metric snapshot from `ACCOUNTANT_LEDGER_PATH` as a stand-in. Missing
-data, an unparseable condition, or a metric absent from the snapshot all
-degrade the entry to `"degraded"` rather than guessing — a no-go with no
-reliable data source stays surfaced-as-unresolvable, it never falsely
-triggers. Swap `_load_accountant_data()` for a real Accountant client the
-day that service exists.
+**Accountant is live** (Danika Franklin, `Botico/agents/accountant`, port
+5002). `fetch_accountant_snapshot()` calls her Tool Bus endpoint
+(`POST /api/tools/execute`, tool `"ledger_budget"`, `X-Agent-Id` header —
+the same pattern every grid agent uses to borrow another agent's tools) per
+`ACCOUNTANT_WATCHED_AGENTS`, and flattens each response into
+`{agent_id}_spend_usd` / `_pct_used` / `_remaining_usd` / `_cap_usd` metrics.
+Her actual ledger backend is `model_gateway` (port 9109) — if that's down,
+if Accountant herself is unreachable, or if a condition is unparseable or
+names a metric outside the fetched snapshot, the entry degrades to
+`"degraded"` rather than guessing. Never a false trigger. `ACCOUNTANT_LEDGER_PATH`
+remains as a manual override for offline testing or when the live call isn't wanted.
 
 ```
-python main.py --add nogo.json --ledger ledger.jsonl      # intake a kill
-python main.py --ledger ledger.jsonl --data snapshot.json # run one monitor pass
+python main.py --add nogo.json --ledger ledger.jsonl        # intake a kill
+python main.py --ledger ledger.jsonl                        # live Accountant call
+python main.py --ledger ledger.jsonl --data snapshot.json   # override with a local snapshot
 ```
 
-Status: **implemented**, 14 tests passing (`python3 -m pytest tests/`).
-Not yet wired: no scheduler runs `monitor()` periodically, and
-`ACCOUNTANT_LEDGER_PATH` has no real producer since Accountant isn't built —
-every poll will degrade until that exists.
+Status: **implemented**, 18 tests passing (`python3 -m pytest tests/`).
+Not yet wired: no scheduler runs `monitor()` periodically. Verified 2026-07-20:
+Accountant herself answers `/health`, but her `model_gateway` backend
+returned "unreachable" from this Mac — likely up on plugfoe instead, not
+confirmed. Point `ACCOUNTANT_URL` at her Tailscale address if local calls
+keep degrading.

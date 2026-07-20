@@ -7,13 +7,20 @@ for a human/Adversary/Closer decision. Reads the no-go schema from
 ../../schemas/nogo_deliverable.py, same source of truth Closer writes
 against.
 
-The Accountant service (the grid's intended quota/metric authority) is not
-built yet (see cmptrblk CLAUDE.md / memory: "Accountant must gate every
-expenditure — HARD RULE, not yet built"). Rather than fake a connection,
-the condition monitor reads a flat JSON metric snapshot from
-ACCOUNTANT_LEDGER_PATH and degrades loudly — never silently, never with a
-false trigger — when that data isn't available. Swap _load_accountant_data()
-for a real Accountant client call once that service exists.
+Accountant ("Danika Franklin") is a live agent at Botico/agents/accountant,
+reachable over the grid's standard Tool Bus HTTP pattern
+(POST {ACCOUNTANT_URL}/api/tools/execute, X-Agent-Id header, tool
+"ledger_budget" — see agent/api/server.py + agent/tools/financial.py in her
+repo). fetch_accountant_snapshot() calls that live endpoint per watched
+agent_id (ACCOUNTANT_WATCHED_AGENTS) and flattens the response into
+{agent_id}_spend_usd / {agent_id}_pct_used / {agent_id}_remaining_usd
+metrics. Her actual ledger_budget backend is model_gateway (port 9109) —
+if that's down (it returned "model_gateway unreachable" when this was
+verified 2026-07-20) or Accountant herself isn't reachable, the fetch
+degrades loudly rather than guessing: same never-false-trigger contract as
+before, now against the real dependency instead of a placeholder.
+ACCOUNTANT_LEDGER_PATH still exists as a manual JSON-snapshot override for
+offline testing.
 
 Run with: python main.py --ledger ledger.jsonl [--data accountant_snapshot.json]
 """
@@ -181,8 +188,60 @@ def evaluate_entry(entry: LedgerEntry, data_source: dict[str, float] | None,
     return "triggered" if _compare(data_source[matched_key], comparator, threshold) else "watching"
 
 
+def _flatten_ledger_budget(agent_id: str, budget: dict[str, Any]) -> dict[str, float]:
+    """Pure — turns one ledger_budget response into flat metric keys.
+    budget shape (financial.ledger_budget): cap_usd, spend_in_window_usd,
+    remaining_usd, pct_used, window_days."""
+    out: dict[str, float] = {}
+    for field, suffix in (("spend_in_window_usd", "spend_usd"),
+                           ("pct_used", "pct_used"),
+                           ("remaining_usd", "remaining_usd"),
+                           ("cap_usd", "cap_usd")):
+        if field in budget:
+            out[f"{agent_id}_{suffix}"] = float(budget[field])
+    return out
+
+
+def fetch_accountant_snapshot(
+    accountant_url: str, agent_ids: list[str], requester_id: str = "ceo-watcher",
+    timeout: float = 5.0,
+) -> dict[str, float] | None:
+    """Live call to Accountant's Tool Bus endpoint (same pattern every grid
+    agent uses to borrow another agent's tools — see accountant/agent/api/server.py).
+    Returns None only if EVERY agent_id fails (Accountant unreachable, or her
+    model_gateway backend is down) — partial results from some agent_ids still
+    count as real data for those metrics."""
+    if not agent_ids:
+        return None
+    snapshot: dict[str, float] = {}
+    any_ok = False
+    with httpx.Client(timeout=timeout) as client:
+        for agent_id in agent_ids:
+            try:
+                resp = client.post(
+                    f"{accountant_url.rstrip('/')}/api/tools/execute",
+                    json={"tool": "ledger_budget", "params": {"agent_id": agent_id}},
+                    headers={"X-Agent-Id": requester_id},
+                )
+                resp.raise_for_status()
+                body = resp.json()
+                if not body.get("ok"):
+                    log_event(kind="watcher", action="accountant_fetch", outcome="warn",
+                              target=agent_id, detail=str(body.get("result"))[:150])
+                    continue
+                budget = json.loads(body["result"])  # ledger_budget returns raw JSON in "result"
+                snapshot.update(_flatten_ledger_budget(agent_id, budget))
+                any_ok = True
+            except Exception as exc:
+                log_event(kind="watcher", action="accountant_fetch", outcome="error",
+                          target=agent_id, detail=str(exc)[:150])
+    return snapshot if any_ok else None
+
+
 def _load_accountant_data(path: str | None) -> dict[str, float] | None:
-    """Accountant service doesn't exist yet — this reads a flat JSON snapshot instead.
+    """Manual JSON-snapshot override — for offline testing or a stand-in when
+    Accountant/model_gateway genuinely can't be reached. fetch_accountant_snapshot()
+    is the real path; this is the fallback, not the primary source.
     Returns None (not {}) when unavailable so callers can tell 'no data' from 'empty data'."""
     if not path:
         return None
@@ -231,7 +290,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Watcher — CEO subordinate")
     parser.add_argument("--ledger", type=Path, default=ROOT / "ledger.jsonl")
     parser.add_argument("--data", type=str, default=os.environ.get("ACCOUNTANT_LEDGER_PATH"),
-                         help="Path to a flat JSON metric snapshot (Accountant stand-in)")
+                         help="Manual JSON metric snapshot override (skips the live Accountant call)")
     parser.add_argument("--add", type=Path, default=None, help="Path to a no-go JSON to add to the ledger")
     args = parser.parse_args()
 
@@ -243,7 +302,14 @@ def main() -> None:
         print(json.dumps(entry.to_dict(), indent=2))
         return
 
-    data_source = _load_accountant_data(args.data)
+    if args.data:
+        data_source = _load_accountant_data(args.data)
+    else:
+        accountant_url = os.environ.get("ACCOUNTANT_URL", "http://localhost:5002")
+        watched_agents = [a.strip() for a in
+                           os.environ.get("ACCOUNTANT_WATCHED_AGENTS", "").split(",") if a.strip()]
+        data_source = fetch_accountant_snapshot(accountant_url, watched_agents)
+
     surfaced = monitor(ledger, data_source)
     print(json.dumps([e.to_dict() for e in surfaced], indent=2))
 
