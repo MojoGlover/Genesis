@@ -1,0 +1,4 @@
+# Closer has no tunable behavior yet beyond env-based Chronicle config
+# (see .env.example). Present for pattern consistency with the other
+# subordinates and future scheduling cadence config.
+placeholder: true
