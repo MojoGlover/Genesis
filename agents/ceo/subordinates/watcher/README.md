@@ -36,9 +36,13 @@ python main.py --ledger ledger.jsonl                        # live Accountant ca
 python main.py --ledger ledger.jsonl --data snapshot.json   # override with a local snapshot
 ```
 
-Status: **implemented**, 18 tests passing (`python3 -m pytest tests/`).
-Not yet wired: no scheduler runs `monitor()` periodically. Verified 2026-07-20:
-Accountant herself answers `/health`, but her `model_gateway` backend
-returned "unreachable" from this Mac — likely up on plugfoe instead, not
-confirmed. Point `ACCOUNTANT_URL` at her Tailscale address if local calls
-keep degrading.
+Status: **implemented**, 18 tests passing (`python3 -m pytest tests/`), and
+verified end-to-end live 2026-07-20 against real data
+(`fetch_accountant_snapshot("http://localhost:5002", ["engineer0"])` returned
+real `spend_in_window_usd`/`pct_used`/`remaining_usd`/`cap_usd`). No Tailscale
+needed — Accountant's `model_gateway` backend (port 9109) runs locally
+alongside her, same host. It just wasn't running the first time this was
+checked (no launchd job existed for it yet); now started via
+`~/Library/LaunchAgents/com.cmptrblk.mod.model_gateway.plist`
+(`RunAtLoad`+`KeepAlive`, same pattern as Accountant/Engineer0/Cerberus).
+Not yet wired: no scheduler runs `monitor()` periodically.
