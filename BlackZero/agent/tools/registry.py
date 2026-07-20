@@ -263,6 +263,19 @@ TOOL_SCHEMAS: list[dict] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "ask_agent",
+        "description": "Ask another agent a question and wait for its reply — synchronous, blocks until the answer comes back (or times out).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to":      {"type": "string", "description": "Target agent alias (e.g. 'engineer0', 'cerberus', 'accountant')"},
+                "message": {"type": "string", "description": "What to ask"},
+                "timeout": {"type": "number", "description": "Seconds to wait for a reply", "default": 90},
+            },
+            "required": ["to", "message"],
+        },
+    },
+    {
         "name": "send_to_agent",
         "description": "Send a message to another agent via PlugOps. The reply will arrive in your inbox asynchronously.",
         "inputSchema": {
@@ -471,6 +484,15 @@ call another tool. When done, output your final response as plain text.
 ```json
 {"tool": "list_helpers", "params": {}}
 ```
+
+**ask_agent** — Ask another agent a question and wait for its reply (synchronous)
+```json
+{"tool": "ask_agent", "params": {"to": "engineer0", "message": "What's the status of the deploy?"}}
+```
+- `to`: agent alias — use `list_agents` first if unsure of the alias
+- `message`: what to ask
+- `timeout`: seconds to wait for a reply (default 90)
+- Blocks until the target agent replies (or times out) and returns its answer directly — use this when you need the answer to relay back in the same turn. For fire-and-forget notifications where you don't need a reply, use send_to_agent instead.
 
 **send_to_agent** — Send a message to another agent via PlugOps
 ```json
@@ -825,6 +847,12 @@ def build_executor(data_dir: Path | None = None) -> Callable[[str, dict], str]:
             elif tool_name == "ask_helper":
                 result = helper.ask_helper(**params)
                 return helper.format_result(result)
+
+            elif tool_name == "ask_agent":
+                result = messaging.ask_agent(**params)
+                if result["ok"]:
+                    return f"{result['agent']} replied: {result['reply']}"
+                return f"ask_agent failed: {result.get('error')}"
 
             elif tool_name == "send_to_agent":
                 result = messaging.send_to_agent(**params)

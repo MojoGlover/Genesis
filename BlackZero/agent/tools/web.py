@@ -52,38 +52,150 @@ def fetch(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
 
 def search(query: str, num_results: int = 5) -> dict:
     """
-    Search the web via DuckDuckGo instant answers API.
-    For full web search, use shell: curl + grep or playwright.
+    Search the web, trying three no-key sources in order and returning
+    whichever finds results first:
+
+      1. DuckDuckGo HTML results — real organic results, but DDG puts a
+         CAPTCHA ("anomaly") wall in front of automated/datacenter IPs, so
+         this frequently comes back empty from a server. Not an error when
+         that happens — just falls through to the next source.
+      2. DuckDuckGo Instant Answer API — reliable but narrow: only fires for
+         direct factual queries (definitions, conversions, infobox facts).
+      3. Wikipedia search — reliable, no key, no bot-gating. Good for
+         encyclopedic/topic queries, useless for anything time-sensitive.
+
+    All three empty is a real "nothing found," not a tool failure — the
+    caller should say so rather than invent an answer. There is no general,
+    reliable, keyless web search API; a paid one (Brave/SerpAPI/Google) would
+    close this gap for good but needs Darnie's go-ahead per the cloud API
+    policy — this function does not add one on its own.
     """
     logger.info(f"[web] Searching: {query}")
+
+    results = _ddg_html_search(query, num_results)
+    if results:
+        return {"query": query, "results": results, "error": None}
+
+    results = _ddg_instant_answer(query, num_results)
+    if results:
+        return {"query": query, "results": results, "error": None}
+
+    results = _wikipedia_search(query, num_results)
+    if results:
+        return {"query": query, "results": results, "error": None}
+
+    return {"query": query, "results": [], "error": None}
+
+
+def _strip_html_fragment(fragment: str) -> str:
+    import html as _html
+    return _html.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
+
+
+def _unwrap_ddg_redirect(href: str) -> str:
+    """DDG HTML results link through /l/?uddg=<real-url>&... — unwrap it."""
+    if href.startswith("//"):
+        href = "https:" + href
+    parsed = urllib.parse.urlparse(href)
+    if "duckduckgo.com" in parsed.netloc and parsed.path == "/l/":
+        real = urllib.parse.parse_qs(parsed.query).get("uddg", [""])[0]
+        if real:
+            return urllib.parse.unquote(real)
+    return href
+
+
+def _ddg_html_search(query: str, num_results: int) -> list[dict]:
+    """Scrape DuckDuckGo's HTML results page. Returns [] on any failure,
+    including the CAPTCHA/anomaly challenge page — never raises."""
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://html.duckduckgo.com/html/?q={encoded}"
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (compatible; ComputerBlack-Agent/1.0)"}
+        )
+        with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
+            raw = resp.read(MAX_CONTENT_BYTES).decode("utf-8", errors="replace")
+    except Exception as e:
+        logger.warning(f"[web] DDG HTML search failed: {e}")
+        return []
+
+    if "anomaly-modal" in raw or "id=\"challenge-form\"" in raw:
+        logger.info("[web] DDG HTML search hit the bot-check wall — falling through")
+        return []
+
+    link_re    = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+    snippet_re = re.compile(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.DOTALL)
+    links      = link_re.findall(raw)
+    snippets   = snippet_re.findall(raw)
+
+    results = []
+    for i, (href, title_html) in enumerate(links):
+        real_url = _unwrap_ddg_redirect(href)
+        # Skip sponsored/ad results (duckduckgo.com/y.js) — not organic hits.
+        if "duckduckgo.com/y.js" in real_url:
+            continue
+        title = _strip_html_fragment(title_html)
+        snippet = _strip_html_fragment(snippets[i]) if i < len(snippets) else ""
+        if title and real_url:
+            results.append({"title": title, "url": real_url, "snippet": snippet})
+        if len(results) >= num_results:
+            break
+    return results
+
+
+def _ddg_instant_answer(query: str, num_results: int) -> list[dict]:
+    """DuckDuckGo's instant-answer API — definitions/conversions/infoboxes only."""
     encoded = urllib.parse.quote(query)
     url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_redirect=1&no_html=1"
     try:
         result = fetch(url)
         if result["error"]:
-            return {"query": query, "results": [], "error": result["error"]}
-
+            return []
         data = json.loads(result["content"])
-        results = []
-
-        if data.get("AbstractText"):
-            results.append({
-                "title": data.get("Heading", ""),
-                "url": data.get("AbstractURL", ""),
-                "snippet": data["AbstractText"],
-            })
-
-        for r in data.get("RelatedTopics", [])[:num_results]:
-            if "Text" in r:
-                results.append({
-                    "title": r.get("Text", "")[:100],
-                    "url": r.get("FirstURL", ""),
-                    "snippet": r.get("Text", ""),
-                })
-
-        return {"query": query, "results": results[:num_results], "error": None}
     except Exception as e:
-        return {"query": query, "results": [], "error": str(e)}
+        logger.warning(f"[web] DDG instant-answer search failed: {e}")
+        return []
+
+    results = []
+    if data.get("AbstractText"):
+        results.append({
+            "title": data.get("Heading", ""),
+            "url": data.get("AbstractURL", ""),
+            "snippet": data["AbstractText"],
+        })
+    for r in data.get("RelatedTopics", [])[:num_results]:
+        if "Text" in r:
+            results.append({
+                "title": r.get("Text", "")[:100],
+                "url": r.get("FirstURL", ""),
+                "snippet": r.get("Text", ""),
+            })
+    return results[:num_results]
+
+
+def _wikipedia_search(query: str, num_results: int) -> list[dict]:
+    """Wikipedia's public search API — reliable, no key, no bot-gating."""
+    encoded = urllib.parse.quote(query)
+    url = (f"https://en.wikipedia.org/w/api.php?action=query&list=search"
+           f"&srsearch={encoded}&format=json&srlimit={num_results}")
+    try:
+        result = fetch(url)
+        if result["error"]:
+            return []
+        data = json.loads(result["content"])
+    except Exception as e:
+        logger.warning(f"[web] Wikipedia search failed: {e}")
+        return []
+
+    results = []
+    for r in data.get("query", {}).get("search", []):
+        title = r.get("title", "")
+        results.append({
+            "title": title,
+            "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
+            "snippet": _strip_html_fragment(r.get("snippet", "")),
+        })
+    return results
 
 
 def api_call(url: str, method: str = "GET", headers: dict | None = None,

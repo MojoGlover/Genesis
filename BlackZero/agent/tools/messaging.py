@@ -96,6 +96,58 @@ def send_to_agent(to: str, message: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def ask_agent(to: str, message: str, timeout: float = 90.0) -> dict:
+    """
+    Ask another agent a question and wait for its reply — synchronous,
+    single-turn. Uses PlugOps's /api/v1/chat endpoint, which blocks
+    server-side until the target agent replies or its own internal wait
+    (~120s) times out.
+
+    Unlike send_to_agent (fire-and-forget — delivers a message but never
+    returns the reply), this returns the target agent's actual answer
+    directly, so it can be relayed back to the caller in the same turn.
+
+    Args:
+        to:      Target agent alias (e.g. 'engineer0', 'cerberus', 'accountant').
+        message: What to ask.
+        timeout: Seconds to wait for a reply (default 90).
+
+    Returns:
+        {"ok": True, "reply": str, "agent": str}   on success
+        {"ok": False, "error": str}                on failure or timeout
+    """
+    cfg     = _load_config()
+    base    = _plugops_base(cfg)
+    from_id = _own_id(cfg)
+
+    payload = {
+        "agent":      to,
+        "message":    message,
+        "from_id":    from_id,
+        "session_id": f"{from_id}_ask_{to}",
+    }
+
+    try:
+        # Client-side timeout must exceed PlugOps's own internal wait so a
+        # slow-but-alive target returns its real reply/timeout instead of us
+        # cutting the connection early and reporting a false "unreachable".
+        r = httpx.post(f"{base}/api/v1/chat", json=payload, timeout=timeout + 30.0)
+        if r.status_code == 200:
+            data = r.json()
+            return {"ok": True, "reply": data.get("reply", ""), "agent": data.get("agent", to)}
+        if r.status_code == 404:
+            return {"ok": False, "error": f"Agent '{to}' not found. Use list_agents to see valid names."}
+        if r.status_code == 504:
+            return {"ok": False, "error": f"'{to}' did not reply in time."}
+        return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:300]}"}
+    except httpx.ConnectError:
+        return {"ok": False, "error": f"Cannot reach PlugOps at {base}"}
+    except httpx.TimeoutException:
+        return {"ok": False, "error": f"'{to}' did not reply within {timeout:.0f}s"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def list_agents() -> dict:
     """
     Return the current agent roster from PlugOps.
