@@ -1,0 +1,3 @@
+# Watcher has no tunable behavior beyond env vars (see .env.example).
+# Present for pattern consistency with the other subordinates.
+placeholder: true
