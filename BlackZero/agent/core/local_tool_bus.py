@@ -26,8 +26,9 @@ Third Pass additions:
 from __future__ import annotations
 
 import logging
+import re
 import time
-from typing import Callable, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 
 from agent.tools.base_adapter import NormalizedResult, ExecutionContext
 
@@ -93,14 +94,45 @@ HIGH_RISK_TOOLS = frozenset({
 # it has no credential-handling tools of its own. Populate per-agent (see
 # Cerberus's copy of this file) when a stamped agent adds one.
 # SENSITIVE_PARAM_KEYS: regardless of tool name, any param under one of these
-# keys is redacted in input_summary. Non-empty by default — these key names
-# are generic enough (password/token/api_key/…) to be worth redacting on
-# sight in any stamped agent, not just ones that know they handle secrets.
+# keys is redacted in input_summary — checked at ANY nesting depth, not just
+# the top level (see _redact_param below). Non-empty by default — these key
+# names are generic enough (password/token/api_key/authorization/…) to be
+# worth redacting on sight in any stamped agent, not just ones that know
+# they handle secrets. Covers e.g. api_call(headers={"Authorization": "Bearer …"}).
 SENSITIVE_TOOLS: frozenset[str] = frozenset()
 SENSITIVE_PARAM_KEYS: frozenset[str] = frozenset({
     "password", "plaintext", "secret", "private_key", "api_key", "token",
+    "authorization", "cookie", "set-cookie", "x-api-key",
 })
 _REDACTED_OUTPUT = "[redacted — secret-bearing tool, output withheld from evidence ledger]"
+_REDACTED_VALUE = "<redacted>"
+
+# web_browser's fill_form/signup take fields=[{"selector": "#password", ...,
+# "value": "..."}] — the secret lives under a generic "value" key that
+# SENSITIVE_PARAM_KEYS can't catch by name alone. Flagged in PR review
+# (2026-07-24): redact "value" when a sibling descriptor key in the same
+# dict (selector/name/field/label) hints the field is a credential.
+_FIELD_HINT_KEYS = ("selector", "name", "field", "label")
+_FIELD_HINT_PATTERN = re.compile(r"pass(word)?|secret|token|api[_-]?key", re.IGNORECASE)
+
+
+def _redact_param(key: str, value: Any) -> Any:
+    """Recursively redact sensitive values in a tool-call param, checked at
+    any nesting depth — a flat top-level-key check misses secrets carried
+    inside a dict/list param (headers, form fields, nested payloads)."""
+    if str(key).lower() in SENSITIVE_PARAM_KEYS:
+        return _REDACTED_VALUE
+    if isinstance(value, dict):
+        hint = next((str(value[k]) for k in _FIELD_HINT_KEYS if k in value), "")
+        field_is_credential = bool(hint) and bool(_FIELD_HINT_PATTERN.search(hint))
+        return {
+            k: (_REDACTED_VALUE if (field_is_credential and str(k).lower() == "value")
+                else _redact_param(k, v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_param(key, item) for item in value]
+    return value
 
 
 class LocalToolBus:
@@ -260,8 +292,7 @@ class LocalToolBus:
         input_summary = (
             f"{tool_name}("
             + ", ".join(
-                f"{k}=<redacted>" if k in SENSITIVE_PARAM_KEYS else f"{k}={repr(v)[:40]}"
-                for k, v in params.items()
+                f"{k}={repr(_redact_param(k, v))[:40]}" for k, v in params.items()
             )
             + ")"
         )

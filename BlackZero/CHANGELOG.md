@@ -6,6 +6,34 @@ agent's `config.yaml` under `template:` — so any agent's drift from the
 current template is a diff between its own `VERSION`/`config.yaml` and this
 file, not a guess.
 
+## 1.4.1 — 2026-07-24
+
+PR-review follow-up on 1.4.0 (`MojoGlover/Genesis#5`), both found on
+Cerberus's copy of this fix and ported back here:
+
+- `agent/core/local_tool_bus.py` — `SENSITIVE_PARAM_KEYS` redaction only
+  checked top-level param keys, so a secret nested inside a dict/list param
+  — `api_call(headers={"Authorization": "Bearer …"})`,
+  `web_browser(fields=[{"selector": "#password", "value": "…"}])` — still
+  landed in the evidence ledger via `repr()`. `_redact_param()` now
+  recurses through nested dicts/lists, plus a heuristic for the generic
+  `{"selector": ..., "value": ...}` field-descriptor shape where the secret
+  sits under a key ("value") too generic to redact by name alone. Added
+  `authorization`/`cookie`/`set-cookie`/`x-api-key` to
+  `SENSITIVE_PARAM_KEYS`.
+- `registry/capabilities/tools/messaging.yaml` replaced with
+  `send_to_agent.yaml` + `list_agents.yaml`. One manifest per adapter
+  *module* doesn't work when the module dispatches multiple tool names —
+  `CapabilityRouter.resolve_tool("send_to_agent")` matched neither the
+  manifest's filename stem nor its adapter stem ("messaging"), so it fell
+  through to the unconstrained "no manifest, pass through" path, bypassing
+  the manifest's own `allowed_modes` gate. Splitting also let `list_agents`
+  (read-only) get broader `allowed_modes` than `send_to_agent` (which posts
+  to the bus and triggers other agents). Note: this exact
+  one-manifest-per-module-with-multiple-tool-names gap already exists for
+  `git_tool.py`'s nine tool names — not fixed here, flagged for whoever
+  picks it up next.
+
 ## 1.4.0 — 2026-07-24
 
 Evidence-ledger redaction, found while wiring a credential-handoff feature

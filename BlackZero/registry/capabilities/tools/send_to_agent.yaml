@@ -1,0 +1,14 @@
+id: tool.local.send_to_agent
+kind: tool
+name: Send To Agent
+status: active
+lifecycle: active
+adapter: agent.tools.messaging
+description: Send a message to another agent via the PlugOps message bus.
+risk_level: medium
+side_effects: remote
+allowed_modes: [act, repair]
+policy:
+  confirmation_required: never
+  blocked_in: [explore, plan, audit]
+  notes: Posts to the PlugOps SSE bus and triggers other agents.
