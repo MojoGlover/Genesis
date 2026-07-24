@@ -77,6 +77,31 @@ HIGH_RISK_TOOLS = frozenset({
     "web_browser",
 })
 
+# ── Evidence-ledger redaction ────────────────────────────────────────────────
+# Found 2026-07-24 on Cerberus (stamped from this template): the bus logs
+# every tool call's params and result to the on-disk evidence ledger
+# (agent/modules/evidence.py, plain JSONL) with no concept of "this tool
+# handles secrets." A credential-handling tool that returns a plaintext
+# secret in its result, or takes one as a param, lands unredacted in
+# evidence_results.jsonl the moment it's called through the normal tool
+# path — defeating any at-rest encryption that tool's own storage does.
+#
+# SENSITIVE_TOOLS: for these tool names, output_summary is replaced with a
+# fixed placeholder — never truncate-and-hope, since a short secret survives
+# any truncation length. The full result still reaches the caller/LLM
+# untouched; only the ledger write is redacted. Empty in the base template —
+# it has no credential-handling tools of its own. Populate per-agent (see
+# Cerberus's copy of this file) when a stamped agent adds one.
+# SENSITIVE_PARAM_KEYS: regardless of tool name, any param under one of these
+# keys is redacted in input_summary. Non-empty by default — these key names
+# are generic enough (password/token/api_key/…) to be worth redacting on
+# sight in any stamped agent, not just ones that know they handle secrets.
+SENSITIVE_TOOLS: frozenset[str] = frozenset()
+SENSITIVE_PARAM_KEYS: frozenset[str] = frozenset({
+    "password", "plaintext", "secret", "private_key", "api_key", "token",
+})
+_REDACTED_OUTPUT = "[redacted — secret-bearing tool, output withheld from evidence ledger]"
+
 
 class LocalToolBus:
     """
@@ -233,7 +258,18 @@ class LocalToolBus:
         # ── 7. Record ─────────────────────────────────────────────────────────
         status        = "failure" if is_error else "success"
         input_summary = (
-            f"{tool_name}({', '.join(f'{k}={repr(v)[:40]}' for k, v in params.items())})"
+            f"{tool_name}("
+            + ", ".join(
+                f"{k}=<redacted>" if k in SENSITIVE_PARAM_KEYS else f"{k}={repr(v)[:40]}"
+                for k, v in params.items()
+            )
+            + ")"
+        )
+        # See SENSITIVE_TOOLS above — these tools' results can contain the
+        # secret itself. The ledger entry must not become a second,
+        # unencrypted copy of it.
+        evidence_output_summary = (
+            _REDACTED_OUTPUT if tool_name in SENSITIVE_TOOLS else result_str[:300]
         )
 
         # Update quarantine overlay on outcome.
@@ -246,7 +282,7 @@ class LocalToolBus:
         self._evidence.record_result(
             capability_id=cap_id,
             input_summary=input_summary,
-            output_summary=result_str[:300],
+            output_summary=evidence_output_summary,
             status=status,
             session_id=session_id,
             side_effects=side_fx,

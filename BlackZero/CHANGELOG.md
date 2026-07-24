@@ -6,6 +6,37 @@ agent's `config.yaml` under `template:` — so any agent's drift from the
 current template is a diff between its own `VERSION`/`config.yaml` and this
 file, not a guess.
 
+## 1.4.0 — 2026-07-24
+
+Evidence-ledger redaction, found while wiring a credential-handoff feature
+on Cerberus (a stamped agent, not this template — see its own CHANGELOG.md
+1.2.0 for the full story). `agent/core/local_tool_bus.py` logs every tool
+call's params and result to the on-disk evidence ledger
+(`agent/modules/evidence.py`, plain JSONL) with no notion of "this tool
+handles secrets." Any stamped agent that adds a tool taking or returning
+secret material — a credential store, an API-key manager, anything of that
+shape — would hit the same leak: the plaintext lands unredacted in
+`evidence_results.jsonl` the first time that tool is called through the
+normal chat/tool-bus path, regardless of how carefully that tool's own
+storage encrypts at rest.
+
+Changes:
+- `agent/core/local_tool_bus.py` — new `SENSITIVE_TOOLS` (tool names whose
+  result may contain secret material — empty by default; this template has
+  no credential-handling tools of its own) and `SENSITIVE_PARAM_KEYS`
+  (param keys redacted regardless of tool name — non-empty by default:
+  `password`, `plaintext`, `secret`, `private_key`, `api_key`, `token`).
+  `execute()` now redacts `input_summary` per-key and replaces
+  `output_summary` with a fixed placeholder for `SENSITIVE_TOOLS` — never
+  truncate-and-hope, since a short secret survives any truncation length.
+  The full result still reaches the caller/LLM untouched; only the ledger
+  write is redacted.
+- No stamped agent needs to change anything to pick up the safe default
+  (`SENSITIVE_PARAM_KEYS` catches common secret param names out of the
+  box); an agent adding its own credential-handling tool should add that
+  tool's name to its own copy of `SENSITIVE_TOOLS` — see Cerberus's copy
+  of this file for the reference implementation.
+
 ## 1.3.0 — 2026-07-15
 
 Fabrication detection closed two gaps, both confirmed live in production
