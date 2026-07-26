@@ -72,8 +72,27 @@ PROFILES: dict[str, dict] = {
 # nothing.
 
 
-def _get(url: str) -> bytes | None:
+# External IO goes through plugops_bridge, per GENESIS/CLAUDE.md: an agent's
+# internal modules do not reach the outside world directly. `fetch` is that
+# channel — the agent's own web_fetch tool, injected by the caller.
+#
+# The direct-urllib path below is the fallback for running OUTSIDE an agent
+# process (the timer CLI, or a build-time check), where no bridge exists. It is
+# not a way around the rule: inside an agent, always pass fetch.
+_Fetcher = "Callable[[str], bytes | None] | None"
+
+
+def _get(url: str, fetch=None) -> bytes | None:
     """Fetch, or None. A source being down must never fail the run."""
+    if fetch is not None:
+        try:
+            data = fetch(url)
+            if data is None:
+                return None
+            return data if isinstance(data, bytes) else str(data).encode()
+        except Exception as e:  # noqa: BLE001
+            print(f"[intel] bridge fetch failed ({url}): {e}", file=sys.stderr)
+            return None
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
@@ -91,11 +110,11 @@ def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
 
 
-def fetch_arxiv(categories, keywords, since_days) -> list[dict]:
+def fetch_arxiv(categories, keywords, since_days, fetch=None) -> list[dict]:
     out, cutoff = [], time.time() - since_days * 86400
     ns = {"a": "http://www.w3.org/2005/Atom"}
     for cat in categories:
-        raw = _get("http://export.arxiv.org/api/query?"
+        raw = _get(fetch=fetch, url="http://export.arxiv.org/api/query?"
                    f"search_query=cat:{cat}&sortBy=submittedDate"
                    "&sortOrder=descending&max_results=60")
         if not raw:
@@ -124,11 +143,11 @@ def fetch_arxiv(categories, keywords, since_days) -> list[dict]:
     return out
 
 
-def fetch_github_releases(repos, since_days) -> list[dict]:
+def fetch_github_releases(repos, since_days, fetch=None) -> list[dict]:
     out, cutoff = [], time.time() - since_days * 86400
     ns = {"a": "http://www.w3.org/2005/Atom"}
     for repo in repos:
-        raw = _get(f"https://github.com/{repo}/releases.atom")
+        raw = _get(f"https://github.com/{repo}/releases.atom", fetch=fetch)
         if not raw:
             continue
         try:
@@ -151,11 +170,11 @@ def fetch_github_releases(repos, since_days) -> list[dict]:
     return out
 
 
-def fetch_nvd(keywords, since_days) -> list[dict]:
+def fetch_nvd(keywords, since_days, fetch=None) -> list[dict]:
     """NVD CVE API — authoritative, free, keyless."""
     out = []
     for kw in keywords:
-        raw = _get("https://services.nvd.nist.gov/rest/json/cves/2.0"
+        raw = _get(fetch=fetch, url="https://services.nvd.nist.gov/rest/json/cves/2.0"
                    f"?keywordSearch={kw}&resultsPerPage=20&noRejected"
                    f"&pubStartDate={_iso(time.time() - since_days * 86400)}"
                    f"&pubEndDate={_iso(time.time())}")
@@ -202,7 +221,7 @@ def save_seen(intel_dir: Path, seen: set[str]) -> None:
 
 
 def scan(profile: str, data_dir: Path, since_days: int = 7,
-         extra: dict | None = None) -> dict:
+         extra: dict | None = None, fetch=None) -> dict:
     """Fetch, dedupe against what's been seen, write NEW items only.
 
     An agent should be told what CHANGED, not handed the same advisory every
@@ -213,9 +232,9 @@ def scan(profile: str, data_dir: Path, since_days: int = 7,
         cfg[k] = list(cfg.get(k, [])) + list(v)
 
     items = (fetch_arxiv(cfg.get("arxiv_categories", []),
-                         cfg.get("arxiv_keywords", []), since_days)
-             + fetch_github_releases(cfg.get("github_releases", []), since_days)
-             + fetch_nvd(cfg.get("nvd_keywords", []), since_days))
+                         cfg.get("arxiv_keywords", []), since_days, fetch)
+             + fetch_github_releases(cfg.get("github_releases", []), since_days, fetch)
+             + fetch_nvd(cfg.get("nvd_keywords", []), since_days, fetch))
 
     intel_dir = Path(data_dir).expanduser() / "intel"
     seen = load_seen(intel_dir)
