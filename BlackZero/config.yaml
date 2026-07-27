@@ -172,3 +172,50 @@ mobility:
 
 logging:
   level: "INFO"
+
+# ── Duties: recurring work that runs as CODE on an OS timer ───────────────────
+#
+# Code does the doing; the model only judges results it was handed, and is never
+# asked whether to look. Full reasoning: docs/DUTIES.md.
+#
+# WHY THIS IS NOT AN autonomy.loops ENTRY. Loops route through the model. Asked
+# to run a health sweep every 30 minutes, a persona model (capabilities:
+# ['completion'] — no tool-calling) called no tool and reported "All agents are
+# currently registered and their credentials are valid. No integrity issues were
+# detected." A fabricated clean bill of health for a grid it never examined.
+# There is no judgment in "run X every N minutes", so no model belongs in it.
+#
+# Timers live in the OS, not this process: an agent that must be running to
+# notice it is unhealthy is not a monitor.
+#
+# `interpret: true` hands the FINISHED report to the model afterwards. It reads
+# findings that already exist on disk, so it cannot invent a run that never
+# happened.
+duties:
+  # Every agent should know whether its own clock can be trusted — timestamps
+  # across the mesh are meaningless otherwise. Reads what NTP already measured;
+  # no network calls.
+  - name: clock_check
+    every: 6h
+    run: __clock__
+    record: clock_reports
+    escalate_if: "status != 'ok'"
+    interpret: false
+
+  # Uncomment and adapt per agent. `run` is one of this agent's own tools, or a
+  # built-in: __clock__ (NTP discipline) or __sources__ (fetch its field).
+  #
+  # - name: health_sweep
+  #     every: 30m
+  #     run: security_health
+  #     args: {mode: system}
+  #     record: health_reports
+  #     escalate_if: "score < 70"
+  #     interpret: false
+  #
+  # - name: field_scan
+  #     every: 24h
+  #     run: __sources__
+  #     args: {profile: security, since_days: 7}
+  #     record: intel
+  #     interpret: true

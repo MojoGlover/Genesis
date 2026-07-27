@@ -42,7 +42,7 @@ _IDENTIFIER_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 _KNOWN_NON_TOOL_WORDS = {"per_request", "per_account", "per_dollar", "e_g", "i_e"}
 
 
-def capability_self_check(agent_name: str) -> dict:
+def capability_self_check(agent_id: str) -> dict:
     """
     Claim-drift self-check, run once at registration.
 
@@ -53,12 +53,22 @@ def capability_self_check(agent_name: str) -> dict:
     things (see governance/AUDIT_STANDARD.md, Botico repo — this is claim
     drift, check #3 of 5, run automatically instead of only on demand).
 
+    Takes the agent **id**, not the display name. Mission files are named for
+    the id (missions/<ID>.mission.txt). Passing the display name made this look
+    for e.g. "CERBERUS WATKINS.mission.txt", which never existed — so the check
+    returned "unknown" from the day it was written and never ran once, on every
+    agent ever stamped. Found 2026-07-26; the whole grid had been reporting no
+    capability status for the same reason.
+
+    See Botico/governance/NAMING.md: the id is the identifier, the name is
+    presentation, and presentation is never a path component.
+
     Best-effort: any failure here must never block registration or crash
     the agent. Returns status="unknown" rather than raising.
     """
     try:
         repo_root = Path(__file__).resolve().parent.parent.parent
-        mission_path = repo_root / "missions" / f"{agent_name.upper()}.mission.txt"
+        mission_path = repo_root / "missions" / f"{agent_id.upper()}.mission.txt"
         if not mission_path.exists():
             return {"status": "unknown", "reason": "mission file not found"}
         mission_text = mission_path.read_text(encoding="utf-8", errors="replace")
@@ -227,7 +237,7 @@ class PlugOpsBridge:
                     "metadata": {
                         "emoji": "🤖",
                         "role":  self._role or "Computer Black agent",
-                        "capability_status": capability_self_check(self.agent_name),
+                        "capability_status": capability_self_check(self.agent_id),
                     },
                 }
                 # Include host+port so PlugOps can derive api_url for grid resolution.

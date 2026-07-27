@@ -92,6 +92,7 @@ the agent's opinion of itself.
 | `module.py` | GENESIS `Module` — routes, health, execution |
 | `runner.py` | Executes one duty, evaluates thresholds, writes evidence |
 | `sources.py` | Deterministic fetching: arXiv, GitHub releases, NVD |
+| `clock.py` | Reads NTP's own measurement — is this node's clock trustworthy |
 | `units.py` | Generates systemd/launchd timer definitions |
 | `cli.py` | Entry point the timer invokes |
 
