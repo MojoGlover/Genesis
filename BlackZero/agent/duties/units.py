@@ -19,9 +19,14 @@ __all__ = ["systemd_units", "launchd_plist", "duty_command"]
 
 def duty_command(agent_root: Path, duty_name: str, python: str | None = None) -> str:
     """The command a timer runs. Deliberately one entry point for every duty —
-    a per-duty script is how you end up with five that drifted apart."""
+    a per-duty script is how you end up with five that drifted apart.
+
+    `agent.duties.cli`, not `modules.duties.cli`: in a stamped agent the package
+    lives under agent/ (agents never import GENESIS at runtime). Getting this
+    wrong produces timers that look correct and fail on every single fire.
+    """
     py = python or f"{agent_root}/.venv/bin/python"
-    return f"{py} -m modules.duties.cli --duty {duty_name}"
+    return f"{py} -m agent.duties.cli --duty {duty_name}"
 
 
 def systemd_units(agent_id: str, agent_root: Path, duty_name: str,
