@@ -337,7 +337,7 @@ def determine_task_complexity(prompt: str) -> str:
     return "medium"
 
 
-def invoke_aider(prompt: str, model: str = "ollama/qwen2.5-coder:32b") -> bool:
+def invoke_aider(prompt: str, model: str = "ollama/qwen2.5-coder:7b") -> bool:
     """
     Invoke Aider with a local model (FREE).
 
@@ -527,7 +527,7 @@ def invoke_task(prompt: str, force_tool: str = None) -> bool:
 
     Routing strategy (cost-optimized, with cloud fallback):
     - simple: Aider + codellama:13b (FREE)
-    - medium: Aider + qwen2.5-coder:32b (FREE)
+    - medium: Aider + qwen2.5-coder:7b (FREE)
     - complex: Claude Code (subscription) -> falls back to Aider if unavailable
     - research: Claude Code (subscription) -> falls back to Gemini free tier
 
@@ -549,17 +549,17 @@ def invoke_task(prompt: str, force_tool: str = None) -> bool:
     elif force_tool == "claude":
         if cloud_status.get("claude") is False:
             log("Claude unavailable - falling back to Aider with best local model")
-            return invoke_aider(prompt, model="ollama/qwen2.5-coder:32b")
+            return invoke_aider(prompt, model="ollama/qwen2.5-coder:7b")
         return invoke_claude(prompt)
     elif force_tool == "gemini":
         if cloud_status.get("gemini") is False:
             log("Gemini unavailable - falling back to Aider")
-            return invoke_aider(prompt, model="ollama/qwen2.5-coder:32b")
+            return invoke_aider(prompt, model="ollama/qwen2.5-coder:7b")
         return invoke_gemini(prompt)
     elif force_tool == "codex":
         if cloud_status.get("codex") is False:
             log("Codex unavailable - falling back to Aider")
-            return invoke_aider(prompt, model="ollama/qwen2.5-coder:32b")
+            return invoke_aider(prompt, model="ollama/qwen2.5-coder:7b")
         return invoke_codex(prompt)
 
     # Auto-route based on complexity
@@ -571,7 +571,7 @@ def invoke_task(prompt: str, force_tool: str = None) -> bool:
 
     elif complexity == "medium":
         log("Task complexity: MEDIUM -> Using Aider (FREE)")
-        return invoke_aider(prompt, model="ollama/qwen2.5-coder:32b")
+        return invoke_aider(prompt, model="ollama/qwen2.5-coder:7b")
 
     else:
         # Complex task - prefer Claude, but fall back if unavailable

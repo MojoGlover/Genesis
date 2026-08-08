@@ -12,7 +12,7 @@ models:
   chat: blackzero-hardened:latest
   reasoning: blackzero-hardened:latest
   fast: blackzero-hardened:latest
-  code: qwen2.5-coder:3b
+  code: qwen2.5-coder:7b
   embedding: all-mpnet-base-v2
 plugops:
   url: https://plugzero-581737577470.us-central1.run.app

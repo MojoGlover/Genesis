@@ -26,6 +26,11 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%H:%M:%S",
 )
+# Quiet per-request HTTP client logging — httpx logs one INFO line per request,
+# which floods the stderr log unbounded under the heartbeat loop (see template
+# GENESIS/BlackZero/main.py, 2026-07-15). WARNING keeps real failures visible.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
