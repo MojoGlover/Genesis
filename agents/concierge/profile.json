@@ -1,0 +1,20 @@
+{
+  "first_name": "Darnie",
+  "last_name": "Glover",
+  "full_name": "Darnie Glover",
+  "email": "your_email@example.com",
+  "phone": "555-555-5555",
+  "address_line1": "123 Main St",
+  "address_line2": "",
+  "city": "Your City",
+  "state": "Your State",
+  "zip": "00000",
+  "country": "United States",
+  "company": "Computer Black",
+  "job_title": "Founder",
+  "website": "https://example.com",
+  "birthday": "1990-01-01",
+  "username_preference": "darnieglover",
+  "password_placeholder": "",
+  "notes": "Fill in real values before running concierge.py. Leave password_placeholder empty — Concierge does not generate or store passwords in v1."
+}
