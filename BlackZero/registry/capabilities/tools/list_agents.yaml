@@ -1,0 +1,14 @@
+id: tool.local.list_agents
+kind: tool
+name: List Agents
+status: active
+lifecycle: active
+adapter: agent.tools.messaging
+description: List all agents currently registered with PlugOps and their online status.
+risk_level: low
+side_effects: none
+allowed_modes: [explore, plan, act, repair, audit]
+policy:
+  confirmation_required: false
+  blocked_in: []
+  note: Read-only query against the PlugOps registry. No message is sent, no state changes.

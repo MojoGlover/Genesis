@@ -6,6 +6,65 @@ agent's `config.yaml` under `template:` — so any agent's drift from the
 current template is a diff between its own `VERSION`/`config.yaml` and this
 file, not a guess.
 
+## 1.4.1 — 2026-07-24
+
+PR-review follow-up on 1.4.0 (`MojoGlover/Genesis#5`), both found on
+Cerberus's copy of this fix and ported back here:
+
+- `agent/core/local_tool_bus.py` — `SENSITIVE_PARAM_KEYS` redaction only
+  checked top-level param keys, so a secret nested inside a dict/list param
+  — `api_call(headers={"Authorization": "Bearer …"})`,
+  `web_browser(fields=[{"selector": "#password", "value": "…"}])` — still
+  landed in the evidence ledger via `repr()`. `_redact_param()` now
+  recurses through nested dicts/lists, plus a heuristic for the generic
+  `{"selector": ..., "value": ...}` field-descriptor shape where the secret
+  sits under a key ("value") too generic to redact by name alone. Added
+  `authorization`/`cookie`/`set-cookie`/`x-api-key` to
+  `SENSITIVE_PARAM_KEYS`.
+- `registry/capabilities/tools/messaging.yaml` replaced with
+  `send_to_agent.yaml` + `list_agents.yaml`. One manifest per adapter
+  *module* doesn't work when the module dispatches multiple tool names —
+  `CapabilityRouter.resolve_tool("send_to_agent")` matched neither the
+  manifest's filename stem nor its adapter stem ("messaging"), so it fell
+  through to the unconstrained "no manifest, pass through" path, bypassing
+  the manifest's own `allowed_modes` gate. Splitting also let `list_agents`
+  (read-only) get broader `allowed_modes` than `send_to_agent` (which posts
+  to the bus and triggers other agents). Note: this exact
+  one-manifest-per-module-with-multiple-tool-names gap already exists for
+  `git_tool.py`'s nine tool names — not fixed here, flagged for whoever
+  picks it up next.
+
+## 1.4.0 — 2026-07-24
+
+Evidence-ledger redaction, found while wiring a credential-handoff feature
+on Cerberus (a stamped agent, not this template — see its own CHANGELOG.md
+1.2.0 for the full story). `agent/core/local_tool_bus.py` logs every tool
+call's params and result to the on-disk evidence ledger
+(`agent/modules/evidence.py`, plain JSONL) with no notion of "this tool
+handles secrets." Any stamped agent that adds a tool taking or returning
+secret material — a credential store, an API-key manager, anything of that
+shape — would hit the same leak: the plaintext lands unredacted in
+`evidence_results.jsonl` the first time that tool is called through the
+normal chat/tool-bus path, regardless of how carefully that tool's own
+storage encrypts at rest.
+
+Changes:
+- `agent/core/local_tool_bus.py` — new `SENSITIVE_TOOLS` (tool names whose
+  result may contain secret material — empty by default; this template has
+  no credential-handling tools of its own) and `SENSITIVE_PARAM_KEYS`
+  (param keys redacted regardless of tool name — non-empty by default:
+  `password`, `plaintext`, `secret`, `private_key`, `api_key`, `token`).
+  `execute()` now redacts `input_summary` per-key and replaces
+  `output_summary` with a fixed placeholder for `SENSITIVE_TOOLS` — never
+  truncate-and-hope, since a short secret survives any truncation length.
+  The full result still reaches the caller/LLM untouched; only the ledger
+  write is redacted.
+- No stamped agent needs to change anything to pick up the safe default
+  (`SENSITIVE_PARAM_KEYS` catches common secret param names out of the
+  box); an agent adding its own credential-handling tool should add that
+  tool's name to its own copy of `SENSITIVE_TOOLS` — see Cerberus's copy
+  of this file for the reference implementation.
+
 ## 1.3.0 — 2026-07-15
 
 Fabrication detection closed two gaps, both confirmed live in production
